@@ -1,0 +1,23 @@
+{
+  "name": "浅色",
+  "dark": false,
+  "vars": {
+    "--bg": "#ffffff",
+    "--panel": "#f6f8fa",
+    "--border": "#d1d9e0",
+    "--text": "#1f2328",
+    "--muted": "#59636e",
+    "--heading": "#1f2328",
+    "--link": "#0969da",
+    "--accent": "#0969da",
+    "--accent-soft": "rgba(9, 105, 218, 0.12)",
+    "--code-bg": "#f0f2f5",
+    "--code-text": "#1f2328",
+    "--pre-bg": "#f6f8fa",
+    "--pre-border": "#e4e8ec",
+    "--quote-border": "#d1d9e0",
+    "--quote-text": "#59636e",
+    "--table-border": "#d1d9e0",
+    "--mermaid-bg": "#ffffff"
+  }
+}

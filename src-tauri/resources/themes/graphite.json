@@ -1,0 +1,23 @@
+{
+  "name": "石墨",
+  "dark": true,
+  "vars": {
+    "--bg": "#1b1d21",
+    "--panel": "#22252b",
+    "--border": "#2f333c",
+    "--text": "#c8ccd4",
+    "--muted": "#8a919c",
+    "--heading": "#9fb3c8",
+    "--link": "#7aa2f7",
+    "--accent": "#7aa2f7",
+    "--accent-soft": "rgba(122, 162, 247, 0.14)",
+    "--code-bg": "#262a31",
+    "--code-text": "#c3a6ff",
+    "--pre-bg": "#16181c",
+    "--pre-border": "#2a2e36",
+    "--quote-border": "#2f333c",
+    "--quote-text": "#8a919c",
+    "--table-border": "#2f333c",
+    "--mermaid-bg": "#20232a"
+  }
+}

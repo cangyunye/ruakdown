@@ -1,0 +1,611 @@
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  api,
+  SERVE_PORT,
+  type AppConfig,
+  type DocPayload,
+  type TreeNode,
+} from "./ipc";
+import { applyTheme } from "./theme";
+import { Sidebar, type SidebarTab } from "./components/Sidebar";
+import { Reader } from "./components/Reader";
+import ChunkedReader, { type ChunkedReaderHandle } from "./components/ChunkedReader";
+
+const SourceEditor = lazy(() => import("./components/SourceEditor"));
+
+type Mode = "read" | "edit";
+
+const THEME_LABELS: Record<string, string> = {
+  light: "浅色",
+  dark: "暗色",
+  graphite: "石墨",
+};
+
+export default function App() {
+  const [root, setRoot] = useState<string | null>(null);
+  const [tree, setTree] = useState<TreeNode[]>([]);
+  const [currentFile, setCurrentFile] = useState<string | null>(null);
+  const [doc, setDoc] = useState<DocPayload | null>(null);
+  const [mode, setMode] = useState<Mode>("read");
+  const [dirty, setDirty] = useState(false);
+  const [externalChange, setExternalChange] = useState(false);
+  const [themeName, setThemeName] = useState("light");
+  const [themeDark, setThemeDark] = useState(false);
+  const [tab, setTab] = useState<SidebarTab>("files");
+  const [activeHeading, setActiveHeading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [serveUrl, setServeUrl] = useState<string | null>(null);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [autosaveOn, setAutosaveOn] = useState(true);
+  const [servePort, setServePort] = useState(SERVE_PORT);
+
+  const autosaveRef = useRef(autosaveOn);
+  autosaveRef.current = autosaveOn;
+  const servePortRef = useRef(servePort);
+  servePortRef.current = servePort;
+
+  const hydrated = useRef(false);
+  const chunkedReaderRef = useRef<ChunkedReaderHandle | null>(null);
+  const stateRef = useRef({
+    root,
+    currentFile,
+    themeName,
+    mode,
+    doc,
+    serveUrl,
+    servePort,
+    autosaveOn,
+  });
+  stateRef.current = {
+    root,
+    currentFile,
+    themeName,
+    mode,
+    doc,
+    serveUrl,
+    servePort,
+    autosaveOn,
+  };
+  const editTextRef = useRef("");
+  const dirtyRef = useRef(false);
+  const autosaveTimer = useRef<number | null>(null);
+
+  const persist = useCallback((patch: Partial<AppConfig>) => {
+    if (!hydrated.current) return;
+    const s = stateRef.current;
+    api
+      .saveConfig({
+        lastFolder: s.root,
+        lastFile: s.currentFile,
+        theme: s.themeName,
+        servePort: servePortRef.current,
+        autosave: autosaveRef.current,
+        ...patch,
+      })
+      .catch(() => {});
+  }, []);
+
+  const saveDoc = useCallback(async () => {
+    const s = stateRef.current;
+    const d = s.doc;
+    if (!s.currentFile || !d || !dirtyRef.current) return;
+    if (autosaveTimer.current) {
+      window.clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = null;
+    }
+    try {
+      await api.saveFile(s.currentFile, editTextRef.current, d.encoding, d.eol);
+      dirtyRef.current = false;
+      setDirty(false);
+      setExternalChange(false);
+      setDoc((prev) => (prev ? { ...prev, text: editTextRef.current } : prev));
+    } catch (err) {
+      setError("保存失败: " + String(err));
+    }
+  }, []);
+
+  const scheduleAutosave = useCallback(() => {
+    if (!autosaveRef.current) return;
+    if (autosaveTimer.current) {
+      window.clearTimeout(autosaveTimer.current);
+    }
+    autosaveTimer.current = window.setTimeout(() => {
+      void saveDoc();
+    }, 1500);
+  }, [saveDoc]);
+
+  const markDirty = useCallback(
+    (text: string) => {
+      editTextRef.current = text;
+      if (!dirtyRef.current) {
+        dirtyRef.current = true;
+        setDirty(true);
+      }
+      scheduleAutosave();
+    },
+    [scheduleAutosave],
+  );
+
+  const openFolder = useCallback(
+    async (path: string) => {
+      try {
+        const nodes = await api.loadTree(path);
+        await api.watchFolder(path);
+        setRoot(path);
+        setTree(nodes);
+        setError(null);
+        persist({ lastFolder: path });
+      } catch (err) {
+        setError("打开文件夹失败: " + String(err));
+      }
+    },
+    [persist],
+  );
+
+  const openFile = useCallback(
+    async (path: string) => {
+      try {
+        // Switching files with unsaved edits: save before leaving.
+        if (dirtyRef.current) {
+          await saveDoc();
+        }
+        const d = await api.openDoc(path);
+        setCurrentFile(path);
+        setDoc(d);
+        editTextRef.current = d.text;
+        dirtyRef.current = false;
+        setDirty(false);
+        setExternalChange(false);
+        setActiveHeading(null);
+        setError(null);
+        await api.setCurrentFile(path);
+        persist({ lastFile: path });
+      } catch (err) {
+        setError("打开文件失败: " + String(err));
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [persist],
+  );
+
+  const chooseFolder = useCallback(async () => {
+    const path = await api.pickFolder();
+    if (path) {
+      if (dirtyRef.current) await saveDoc();
+      setCurrentFile(null);
+      setDoc(null);
+      await api.setCurrentFile(null);
+      await openFolder(path);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openFolder]);
+
+  const chooseFile = useCallback(async () => {
+    const path = await api.pickFile();
+    if (path) await openFile(path);
+  }, [openFile]);
+
+  const reloadCurrent = useCallback(async () => {
+    const s = stateRef.current;
+    if (!s.currentFile) return;
+    try {
+      const d = await api.openDoc(s.currentFile);
+      setDoc(d);
+      editTextRef.current = d.text;
+      dirtyRef.current = false;
+      setDirty(false);
+      setExternalChange(false);
+    } catch (err) {
+      setError("重新加载失败: " + String(err));
+    }
+  }, []);
+
+  const switchMode = useCallback(
+    async (next: Mode) => {
+      if (next === stateRef.current.mode) return;
+      if (next === "read") {
+        await saveDoc();
+      } else {
+        editTextRef.current = stateRef.current.doc?.text ?? "";
+      }
+      setMode(next);
+    },
+    [saveDoc],
+  );
+
+  const exportHtml = useCallback(async () => {
+    const s = stateRef.current;
+    if (!s.currentFile || !s.doc) return;
+    if (dirtyRef.current) await saveDoc();
+    const stem = s.currentFile.split(/[\\/]/).pop()?.replace(/\.(md|markdown)$/i, "") ?? "文档";
+    const out = await api.pickExportPath(`${stem}.html`);
+    if (!out) return;
+    try {
+      await api.exportHtml(s.currentFile, out, s.themeName, true);
+      setInfo(`已导出: ${out}`);
+    } catch (err) {
+      setError("导出失败: " + String(err));
+    }
+  }, [saveDoc]);
+
+  const startServe = useCallback(async (lan: boolean) => {
+    if (lan && !window.confirm("局域网共享将绑定 0.0.0.0 并触发 Windows 防火墙授权弹窗,任何同网段设备都可访问。确认继续?")) {
+      return;
+    }
+    try {
+      const url = await api.serveStart(servePortRef.current, lan);
+      setServeUrl(url);
+      setInfo(`预览服务已启动: ${url}`);
+    } catch (err) {
+      setError("启动预览服务失败: " + String(err));
+    }
+  }, []);
+
+  const stopServe = useCallback(async () => {
+    try {
+      await api.serveStop();
+      setServeUrl(null);
+      setInfo("预览服务已停止");
+    } catch (err) {
+      setError("停止预览服务失败: " + String(err));
+    }
+  }, []);
+
+  const openServe = useCallback(async () => {
+    const url = stateRef.current.serveUrl ?? serveUrl;
+    if (url) await openUrl(url);
+  }, [serveUrl]);
+
+  // Latest handlers for native menu events.
+  const menuRouteRef = useRef<(id: string) => void>(() => {});
+  menuRouteRef.current = (id: string) => {
+    switch (id) {
+      case "open-folder":
+        void chooseFolder();
+        break;
+      case "open-file":
+        void chooseFile();
+        break;
+      case "save":
+        void saveDoc();
+        break;
+      case "export-html":
+        void exportHtml();
+        break;
+      case "mode-read":
+        void switchMode("read");
+        break;
+      case "mode-edit":
+        void switchMode("edit");
+        break;
+      case "toggle-sidebar":
+        setSidebarVisible((v) => !v);
+        break;
+      case "theme-light":
+      case "theme-dark":
+      case "theme-graphite":
+        void changeTheme(id.replace("theme-", ""));
+        break;
+      case "serve-local":
+        void startServe(false);
+        break;
+      case "serve-lan":
+        void startServe(true);
+        break;
+      case "serve-stop":
+        void stopServe();
+        break;
+      case "serve-open":
+        void openServe();
+        break;
+    }
+  };
+
+  useEffect(() => {
+    const unlisten = listen<string>("menu", (event) => {
+      menuRouteRef.current(event.payload);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // Clear transient info notices.
+  useEffect(() => {
+    if (!info) return;
+    const t = window.setTimeout(() => setInfo(null), 5000);
+    return () => window.clearTimeout(t);
+  }, [info]);
+
+  // Restore last session (folder/file/theme) on startup.
+  useEffect(() => {
+    (async () => {
+      try {
+        const cfg = await api.getConfig();
+        const theme = cfg.theme ?? "light";
+        setThemeName(theme);
+        const t = await applyTheme(theme);
+        setThemeDark(t?.dark ?? false);
+        if (cfg.servePort && cfg.servePort > 0 && cfg.servePort < 65536) {
+          setServePort(cfg.servePort);
+        }
+        if (cfg.autosave != null) setAutosaveOn(cfg.autosave);
+        if (cfg.lastFolder) {
+          await openFolder(cfg.lastFolder);
+          if (cfg.lastFile) await openFile(cfg.lastFile);
+        }
+      } catch (err) {
+        console.error("restore session:", err);
+      } finally {
+        hydrated.current = true;
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // External filesystem changes: refresh tree; reload the open file unless
+  // there are unsaved edits (then ask via the notice bar).
+  useEffect(() => {
+    const unlisten = listen<{ paths: string[] }>("fs-change", async (event) => {
+      const s = stateRef.current;
+      if (s.root) {
+        try {
+          setTree(await api.loadTree(s.root));
+        } catch {
+          /* folder may have been removed; keep last tree */
+        }
+      }
+      const current = s.currentFile;
+      if (
+        !current ||
+        !event.payload.paths.some((p) => p.toLowerCase() === current.toLowerCase())
+      ) {
+        return;
+      }
+      if (s.mode === "edit" && dirtyRef.current) {
+        setExternalChange(true);
+        return;
+      }
+      try {
+        const d = await api.openDoc(current);
+        setDoc(d);
+        editTextRef.current = d.text;
+        setExternalChange(false);
+      } catch {
+        /* file may be mid-write; next event will refresh */
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // Warn before closing with unsaved edits; best-effort save.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) {
+        void saveDoc();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [saveDoc]);
+
+  const changeTheme = useCallback(
+    async (name: string) => {
+      setThemeName(name);
+      const t = await applyTheme(name);
+      setThemeDark(t?.dark ?? false);
+      persist({ theme: name });
+    },
+    [persist],
+  );
+
+  const jumpToHeading = useCallback(
+    (id: string) => {
+      if (stateRef.current.doc?.chunked) {
+        chunkedReaderRef.current?.jumpTo(id);
+      } else {
+        document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    },
+    [],
+  );
+
+  const currentOutline = doc?.chunked
+    ? doc.chunked.outline
+    : (doc?.outline ?? []);
+
+  return (
+    <div className="app">
+      <header className="titlebar">
+        <div className="brand">Ruakdown</div>
+        <div className="spacer" />
+        {doc && (
+          <div className="mode-switch">
+            <button
+              className={mode === "read" ? "active" : ""}
+              onClick={() => switchMode("read")}
+            >
+              阅读
+            </button>
+            <button
+              className={mode === "edit" ? "active" : ""}
+              onClick={() => switchMode("edit")}
+            >
+              源码
+            </button>
+          </div>
+        )}
+        <button className="tool-btn" onClick={chooseFolder} title="打开文件夹">
+          打开文件夹
+        </button>
+        <button className="tool-btn" onClick={chooseFile} title="打开文件">
+          打开文件
+        </button>
+        <select
+          className="theme-select"
+          value={themeName}
+          onChange={(e) => changeTheme(e.target.value)}
+          title="切换主题"
+        >
+          {Object.entries(THEME_LABELS).map(([id, label]) => (
+            <option key={id} value={id}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <button
+          className="tool-btn"
+          onClick={() => setSettingsOpen(true)}
+          title="设置"
+        >
+          设置
+        </button>
+      </header>
+
+      {error && <div className="error-bar">{error}</div>}
+      {info && <div className="notice-bar info">{info}</div>}
+
+      <div className="main">
+        {sidebarVisible && (
+          <Sidebar
+            tab={tab}
+            onTabChange={setTab}
+            tree={tree}
+            outline={currentOutline}
+            activeFile={currentFile}
+            activeHeading={activeHeading}
+            hasFolder={root !== null}
+            onOpenFile={openFile}
+            onJump={jumpToHeading}
+          />
+        )}
+        <div className="content">
+          {doc ? (
+            <>
+              {externalChange && (
+                <div className="notice-bar">
+                  <span>文件已被外部修改。</span>
+                  <button onClick={reloadCurrent}>重新加载</button>
+                  <button onClick={() => setExternalChange(false)}>忽略</button>
+                </div>
+              )}
+              {mode === "read" ? (
+                <div className="reader-wrap">
+                  {doc.chunked ? (
+                    <ChunkedReader
+                      ref={chunkedReaderRef}
+                      key={doc.chunked.token}
+                      meta={doc.chunked}
+                      path={currentFile ?? ""}
+                      dark={themeDark}
+                      onActiveHeading={setActiveHeading}
+                    />
+                  ) : (
+                    <Reader doc={doc} dark={themeDark} onActiveHeading={setActiveHeading} />
+                  )}
+                </div>
+              ) : (
+                <div className="editor-wrap">
+                  <Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}>
+                    <SourceEditor
+                      key={currentFile ?? ""}
+                      initialText={doc.text}
+                      text={doc.text}
+                      onChange={markDirty}
+                      onSave={saveDoc}
+                    />
+                  </Suspense>
+                </div>
+              )}
+              <footer className="statusbar">
+                <span className="status-file" title={currentFile ?? ""}>
+                  {currentFile?.split(/[\\/]/).pop()}
+                </span>
+                <span>{mode === "read" ? "阅读视图" : "源码模式"}</span>
+                <span>{doc.encoding}</span>
+                <span>{doc.eol.toUpperCase()}</span>
+                {dirty && <span className="status-dirty">未保存</span>}
+                <span className="spacer" />
+                {serveUrl && (
+                  <a
+                    className="status-link"
+                    href={serveUrl}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void openServe();
+                    }}
+                    title="在浏览器打开预览"
+                  >
+                    预览: {serveUrl}
+                  </a>
+                )}
+              </footer>
+            </>
+          ) : (
+            <div className="empty-state">
+              <h1>Ruakdown</h1>
+              <p>Windows 优先的 Markdown 阅读器 / 编辑器</p>
+              <div className="empty-actions">
+                <button className="primary-btn" onClick={chooseFolder}>
+                  打开文件夹
+                </button>
+                <button className="primary-btn secondary" onClick={chooseFile}>
+                  打开文件
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {settingsOpen && (
+        <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>设置</h2>
+            <label className="setting-row">
+              <span>自动保存(输入暂停 1.5 秒后)</span>
+              <input
+                type="checkbox"
+                checked={autosaveOn}
+                onChange={(e) => {
+                  setAutosaveOn(e.target.checked);
+                  persist({ autosave: e.target.checked });
+                }}
+              />
+            </label>
+            <label className="setting-row">
+              <span>预览服务端口</span>
+              <input
+                type="number"
+                min={1024}
+                max={65535}
+                value={servePort}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v)) setServePort(v);
+                }}
+                onBlur={() => persist({ servePort })}
+                style={{ width: 90 }}
+              />
+            </label>
+            <p className="setting-hint">
+              端口修改后,下次启动预览服务生效。当前主题:{THEME_LABELS[themeName]}
+            </p>
+            <div className="modal-actions">
+              <button className="primary-btn" onClick={() => setSettingsOpen(false)}>
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

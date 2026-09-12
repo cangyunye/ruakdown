@@ -1,0 +1,41 @@
+[package]
+name = "ruakdown"
+version = "0.1.0"
+description = "Windows-first Markdown reader & editor"
+authors = ["ruakdown"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "ruakdown_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+notify = "8"
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+percent-encoding = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs", "time"] }
+encoding_rs = "0.8"
+dunce = "1"
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

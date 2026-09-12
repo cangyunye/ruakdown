@@ -1,0 +1,152 @@
+use crate::core::{markdown, theme};
+
+pub struct ExportOptions {
+    pub theme_id: String,
+    pub title: String,
+}
+
+/// Offline-capable, standalone HTML export. Same pulldown-cmark pipeline as
+/// the reader view, theme CSS inlined, `mermaid_js` = full mermaid.min.js
+/// source when available (None falls back to a CDN script tag).
+pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions) -> String {
+    let rendered = markdown::render_markdown(source);
+    let theme = theme::get(&opts.theme_id).or_else(|| theme::get("light")).expect("builtin theme");
+
+    let mut vars = String::new();
+    for (k, v) in &theme.vars {
+        vars.push_str(&format!("{k}:{v};"));
+    }
+
+    let mermaid_script = match mermaid_js {
+        Some(js) => format!("<script>{js}</script>"),
+        None => "<script src=\"https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.min.js\"></script>"
+            .to_string(),
+    };
+
+    let title = html_escape(&opts.title);
+
+    format!(
+        r#"<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<style>
+:root {{{vars}}}
+{EXPORT_CSS}
+</style>
+</head>
+<body>
+<article class="md-body">
+{body}
+</article>
+{mermaid_script}
+<script>
+(function () {{
+  function render() {{
+    var m = window.mermaid;
+    if (!m) return;
+    var dark = document.documentElement.dataset.themeDark === "1";
+    m.initialize({{ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default", fontFamily: "inherit" }});
+    var codes = document.querySelectorAll("pre > code.language-mermaid");
+    codes.forEach(function (code, i) {{
+      var pre = code.parentElement;
+      var div = document.createElement("div");
+      div.className = "mermaid-block";
+      pre.after(div);
+      m.render("mermaid-" + i, code.textContent).then(function (r) {{
+        div.innerHTML = r.svg;
+        pre.hidden = true;
+      }}).catch(function () {{ }});
+    }});
+  }}
+  document.documentElement.dataset.themeDark = "{dark}";
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", render);
+  else render();
+}})();
+</script>
+</body>
+</html>
+"#,
+        title = title,
+        vars = vars,
+        EXPORT_CSS = EXPORT_CSS,
+        body = rendered.html,
+        mermaid_script = mermaid_script,
+        dark = if theme.dark { "1" } else { "0" },
+    )
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// Mirror of the reader markdown styles (index.css) for standalone export.
+const EXPORT_CSS: &str = r#"
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 15px;
+  background: var(--bg);
+  color: var(--text);
+}
+.md-body { max-width: 860px; margin: 0 auto; padding: 40px 48px 80px; line-height: 1.75; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 {
+  color: var(--heading); line-height: 1.35; margin: 1.6em 0 0.6em; font-weight: 650;
+}
+.md-body h1 { font-size: 1.9em; margin-top: 0.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+.md-body h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+.md-body h3 { font-size: 1.25em; }
+.md-body p { margin: 0.8em 0; }
+.md-body a { color: var(--link); text-decoration: none; }
+.md-body a:hover { text-decoration: underline; }
+.md-body code {
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+  font-size: 0.9em; background: var(--code-bg); color: var(--code-text);
+  padding: 0.15em 0.4em; border-radius: 5px;
+}
+.md-body pre {
+  background: var(--pre-bg); border: 1px solid var(--pre-border); border-radius: 8px;
+  padding: 14px 16px; overflow: auto; line-height: 1.6;
+}
+.md-body pre code { background: transparent; color: var(--text); padding: 0; border-radius: 0; font-size: 0.88em; }
+.md-body blockquote {
+  margin: 1em 0; padding: 0.2em 1em; border-left: 4px solid var(--quote-border);
+  color: var(--quote-text); background: var(--panel); border-radius: 0 6px 6px 0;
+}
+.md-body table { border-collapse: collapse; margin: 1em 0; width: 100%; }
+.md-body th, .md-body td { border: 1px solid var(--table-border); padding: 6px 12px; text-align: left; }
+.md-body th { background: var(--panel); }
+.md-body tr:nth-child(2n) td { background: var(--panel); }
+.md-body img { max-width: 100%; border-radius: 6px; }
+.md-body hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
+.md-body ul, .md-body ol { padding-left: 1.6em; margin: 0.8em 0; }
+.md-body li { margin: 0.25em 0; }
+.md-body input[type="checkbox"] { accent-color: var(--accent); margin-right: 0.4em; }
+.mermaid-block {
+  margin: 1em 0; padding: 12px; background: var(--mermaid-bg);
+  border: 1px solid var(--border); border-radius: 8px; overflow: auto; text-align: center;
+}
+.mermaid-block svg { max-width: 100%; height: auto; }
+"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn export_contains_html_skeleton_and_mermaid() {
+        let html = export_html(
+            "# Hello\n\n```mermaid\ngraph TD; A-->B;\n```",
+            None,
+            &ExportOptions { theme_id: "dark".into(), title: "t".into() },
+        );
+        assert!(html.contains("<title>t</title>"));
+        assert!(html.contains("<h1 id="));
+        assert!(html.contains("language-mermaid"));
+        assert!(html.contains("cdn.jsdelivr.net/npm/mermaid@12"));
+        assert!(html.contains("--bg:#1e1e1e;"));
+    }
+}

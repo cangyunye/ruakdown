@@ -1,0 +1,115 @@
+import { invoke } from "@tauri-apps/api/core";
+
+export interface TreeNode {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children: TreeNode[];
+}
+
+export interface OutlineItem {
+  level: number;
+  text: string;
+  id: string;
+  chunk?: number;
+}
+
+export interface ChunkInfo {
+  htmlBytes: number;
+  tags: number;
+  estHeight: number;
+  hasMermaid: boolean;
+  firstHeading: number | null;
+  lastHeading: number | null;
+}
+
+export interface ChunkOutlineItem {
+  level: number;
+  text: string;
+  id: string;
+  chunk: number;
+}
+
+export interface ChunkedMeta {
+  token: number;
+  chunkCount: number;
+  chunks: ChunkInfo[];
+  outline: ChunkOutlineItem[];
+}
+
+export interface ChunkOut {
+  index: number;
+  html: string;
+}
+
+export interface DocPayload {
+  html: string | null;
+  outline: OutlineItem[];
+  text: string;
+  encoding: string;
+  eol: string;
+  chunked: ChunkedMeta | null;
+}
+
+export interface AppConfig {
+  lastFolder: string | null;
+  lastFile: string | null;
+  theme: string | null;
+  servePort: number | null;
+  autosave: boolean | null;
+}
+
+export interface ThemeInfo {
+  id: string;
+  name: string;
+  dark: boolean;
+}
+
+export interface Theme {
+  name: string;
+  dark: boolean;
+  vars: Record<string, string>;
+}
+
+export interface SaveResult {
+  bytes: number;
+  backup: string | null;
+}
+
+export const api = {
+  pickFolder: () => invoke<string | null>("pick_folder"),
+  pickFile: () => invoke<string | null>("pick_file"),
+  loadTree: (root: string) => invoke<TreeNode[]>("load_tree", { root }),
+  openDoc: (path: string) => invoke<DocPayload>("open_doc", { path }),
+  renderChunks: (token: number, start: number, count: number) =>
+    invoke<ChunkOut[]>("render_chunks", { token, start, count }),
+  saveFile: (path: string, text: string, encoding: string, eol: string) =>
+    invoke<SaveResult>("save_file", { path, text, encoding, eol }),
+  watchFolder: (root: string) => invoke<void>("watch_folder", { root }),
+  stopWatch: () => invoke<void>("stop_watch"),
+  getConfig: () => invoke<AppConfig>("get_config"),
+  saveConfig: (config: AppConfig) => invoke<void>("save_config", { config }),
+  listThemes: () => invoke<ThemeInfo[]>("list_themes"),
+  applyTheme: (name: string) => invoke<Theme>("apply_theme", { name }),
+  pickExportPath: (defaultName: string) =>
+    invoke<string | null>("pick_export_path", { defaultName }),
+  exportHtml: (
+    sourcePath: string,
+    outPath: string,
+    themeId: string,
+    inlineMermaid: boolean,
+  ) =>
+    invoke<number>("export_html", {
+      sourcePath,
+      outPath,
+      themeId,
+      inlineMermaid,
+    }),
+  setCurrentFile: (path: string | null) => invoke<void>("set_current_file", { path }),
+  serveStatus: () => invoke<string | null>("serve_status"),
+  serveStart: (port: number, lan: boolean) =>
+    invoke<string>("serve_start", { port, lan }),
+  serveStop: () => invoke<void>("serve_stop"),
+};
+
+export const SERVE_PORT = 17630;

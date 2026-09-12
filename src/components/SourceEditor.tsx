@@ -1,0 +1,134 @@
+import { useEffect, useRef } from "react";
+import { EditorState } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
+import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language";
+import { markdown } from "@codemirror/lang-markdown";
+import { tags as t } from "@lezer/highlight";
+
+interface Props {
+  /** Document text at mount (component is remounted per file via key). */
+  initialText: string;
+  /** Latest saved/external text; applied only when it differs from our edits. */
+  text: string;
+  onChange: (text: string) => void;
+  onSave: () => void;
+}
+
+const highlightStyle = HighlightStyle.define([
+  { tag: t.heading, color: "var(--heading)", fontWeight: "700" },
+  { tag: t.strong, fontWeight: "700" },
+  { tag: t.emphasis, fontStyle: "italic" },
+  { tag: t.strikethrough, textDecoration: "line-through" },
+  { tag: t.link, color: "var(--link)" },
+  { tag: t.url, color: "var(--muted)" },
+  { tag: t.monospace, color: "var(--code-text)" },
+  { tag: t.quote, color: "var(--quote-text)" },
+  { tag: t.list, color: "var(--accent)" },
+  { tag: t.processingInstruction, color: "var(--accent)" },
+]);
+
+const editorTheme = EditorView.theme({
+  "&": {
+    height: "100%",
+    color: "var(--text)",
+    backgroundColor: "transparent",
+  },
+  "&.cm-focused": {
+    outline: "none",
+  },
+  ".cm-scroller": {
+    fontFamily: "'Cascadia Code', Consolas, 'Courier New', monospace",
+    fontSize: "13.5px",
+    lineHeight: 1.75,
+    padding: "24px 8px 60vh",
+  },
+  ".cm-content": {
+    caretColor: "var(--accent)",
+    maxWidth: "860px",
+    margin: "0 auto",
+  },
+  ".cm-line": {
+    padding: "0 14px",
+  },
+  ".cm-cursor, .cm-dropCursor": {
+    borderLeftColor: "var(--accent)",
+  },
+  ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
+    backgroundColor: "var(--accent-soft) !important",
+  },
+  ".cm-activeLine": {
+    backgroundColor: "transparent",
+  },
+  ".cm-gutters": {
+    display: "none",
+  },
+});
+
+export default function SourceEditor({ initialText, text, onChange, onSave }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  const lastPushedRef = useRef(initialText);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const view = new EditorView({
+      parent: container,
+      state: EditorState.create({
+        doc: initialText,
+        extensions: [
+          history(),
+          keymap.of([
+            {
+              key: "Mod-s",
+              preventDefault: true,
+              run: () => {
+                onSaveRef.current();
+                return true;
+              },
+            },
+          ]),
+          keymap.of([...defaultKeymap, ...historyKeymap]),
+          indentUnit.of("    "),
+          markdown(),
+          EditorView.lineWrapping,
+          syntaxHighlighting(highlightStyle),
+          editorTheme,
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged) {
+              const value = update.state.doc.toString();
+              lastPushedRef.current = value;
+              onChangeRef.current(value);
+            }
+          }),
+        ],
+      }),
+    });
+    viewRef.current = view;
+    return () => {
+      view.destroy();
+      viewRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Apply external reloads (file watcher / save echo) but never clobber typing.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || text === lastPushedRef.current) return;
+    const anchor = Math.min(view.state.selection.main.anchor, text.length);
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: text },
+      selection: { anchor },
+    });
+    lastPushedRef.current = text;
+  }, [text]);
+
+  return <div ref={containerRef} className="source-editor" />;
+}

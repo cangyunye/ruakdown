@@ -1,0 +1,97 @@
+version: '3'
+
+# Ruakdown 构建任务(Windows-first)
+# 用法:task <任务名>;不带参数 = 列出全部任务
+#
+# 产物位置:若设置了 CARGO_TARGET_DIR(本机为 F:\cargotarget),安装包在该目录的
+# release/bundle/nsis/ 下;否则在 src-tauri/target/release/bundle/nsis/ 下。
+
+vars:
+  APP_NAME: Ruakdown
+  VERSION: '0.1.0'
+  # 只用 shell 内建 printf(不依赖 tr/echo 等外部或转义行为不一致的命令)
+  TARGET_DIR:
+    sh: printf '%s' "${CARGO_TARGET_DIR:-src-tauri/target}"
+
+tasks:
+  default:
+    desc: 列出全部任务
+    cmds:
+      - task --list
+    silent: true
+
+  doctor:
+    desc: 检查工具链版本(node/pnpm/rustc/cargo)
+    cmds:
+      - cmd: printf '%s\n' "--- node ---" && node --version
+      - cmd: printf '%s\n' "--- pnpm ---" && pnpm --version
+      - cmd: printf '%s\n' "--- rustc ---" && rustc --version
+      - cmd: printf '%s\n' "--- cargo ---" && cargo --version
+      - cmd: printf '%s\n' "--- target dir ---" "{{.TARGET_DIR}}"
+    silent: true
+
+  install:
+    desc: 安装前端依赖(pnpm install)
+    cmds:
+      - pnpm install
+
+  dev:
+    desc: 启动开发模式(tauri dev,Vite HMR + Rust 增量编译)
+    deps: [install]
+    cmds:
+      - pnpm tauri dev
+
+  check:
+    desc: 快速检查(前端 tsc + vite build + cargo check)
+    deps: [install]
+    cmds:
+      - pnpm build
+      - task: "check:rust"
+
+  "check:rust":
+    internal: true
+    dir: src-tauri
+    cmds:
+      - cargo check
+
+  test:
+    desc: 运行 Rust 单元测试
+    dir: src-tauri
+    cmds:
+      - cargo test
+
+  bench:
+    desc: 大文档渲染基准(1/5/10MB,ignored test)
+    dir: src-tauri
+    env:
+      CARGO_BUILD_JOBS: '4'
+    cmds:
+      - cargo test bench_large_document --release -- --ignored --nocapture
+
+  build:
+    desc: 构建 release + NSIS 安装包(限制并行防链接器内存不足)
+    deps: [install]
+    env:
+      CARGO_BUILD_JOBS: '4'
+    cmds:
+      - pnpm tauri build
+      - cmd: printf '%s\n' "安装包输出 {{.TARGET_DIR}}\release\bundle\nsis\{{.APP_NAME}}_{{.VERSION}}_x64-setup.exe"
+        silent: false
+
+  "build:frontend":
+    desc: 仅构建前端(tsc + vite build,产物 dist/)
+    deps: [install]
+    cmds:
+      - pnpm build
+
+  clean:
+    desc: 清理构建产物(dist + cargo target)
+    cmds:
+      - node -e "require('fs').rmSync('dist',{recursive:true,force:true})"
+      - task: "clean:rust"
+
+  "clean:rust":
+    internal: true
+    dir: src-tauri
+    cmds:
+      - cargo clean
