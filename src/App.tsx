@@ -9,9 +9,11 @@ import {
   type BackgroundConfig,
   type DocPayload,
   type TreeNode,
+  type ZenConfig,
 } from "./ipc";
 import { applyTheme } from "./theme";
 import { scrollToText } from "./jumpToText";
+import type { ZenController, ZenLevel } from "./zen";
 import { Sidebar, type SidebarTab } from "./components/Sidebar";
 import { Reader } from "./components/Reader";
 import SearchModal from "./components/SearchModal";
@@ -78,6 +80,31 @@ function applyBackground(cfg: ResolvedBg): void {
   }
 }
 
+/** ZenConfig with all optional fields resolved to concrete values. */
+type ResolvedZen = {
+  level: ZenLevel;
+  effect: "dim" | "dim-blur";
+  emphasis: boolean;
+};
+
+const DEFAULT_ZEN: ResolvedZen = {
+  level: "auto",
+  effect: "dim",
+  emphasis: true,
+};
+
+function normalizeZen(raw: Partial<ZenConfig> | null): ResolvedZen {
+  const level: ZenLevel =
+    raw?.level === "h1" || raw?.level === "h2" || raw?.level === "h3"
+      ? raw.level
+      : "auto";
+  return {
+    level,
+    effect: raw?.effect === "dim-blur" ? "dim-blur" : "dim",
+    emphasis: raw?.emphasis ?? DEFAULT_ZEN.emphasis,
+  };
+}
+
 export default function App() {
   const [root, setRoot] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
@@ -99,6 +126,12 @@ export default function App() {
   const [autosaveOn, setAutosaveOn] = useState(true);
   const [servePort, setServePort] = useState(SERVE_PORT);
   const [bg, setBg] = useState<ResolvedBg>(DEFAULT_BG);
+  const [zenOn, setZenOn] = useState(false);
+  const [zenCfg, setZenCfg] = useState<ResolvedZen>(DEFAULT_ZEN);
+  const [zenPos, setZenPos] = useState<{ idx: number; total: number } | null>(null);
+  const zenPosRef = useRef(zenPos);
+  zenPosRef.current = zenPos;
+  const zenCtlRef = useRef<ZenController | null>(null);
 
   const autosaveRef = useRef(autosaveOn);
   autosaveRef.current = autosaveOn;
@@ -117,6 +150,7 @@ export default function App() {
     servePort,
     autosaveOn,
     bg,
+    zenCfg,
   });
   stateRef.current = {
     root,
@@ -128,6 +162,7 @@ export default function App() {
     servePort,
     autosaveOn,
     bg,
+    zenCfg,
   };
   const editTextRef = useRef("");
   const dirtyRef = useRef(false);
@@ -144,6 +179,7 @@ export default function App() {
         servePort: servePortRef.current,
         autosave: autosaveRef.current,
         background: s.bg,
+        zen: s.zenCfg,
         ...patch,
       })
       .catch(() => {});
@@ -294,6 +330,19 @@ export default function App() {
     [saveDoc],
   );
 
+  const toggleZen = useCallback(() => {
+    if (stateRef.current.mode === "edit") {
+      void switchMode("read");
+    }
+    setZenPos(null);
+    setZenOn((v) => !v);
+  }, [switchMode]);
+
+  const handleZenUnavailable = useCallback(() => {
+    setZenOn(false);
+    setInfo("当前文档没有可用的分节标题(同一层级需至少两个),专注模式未开启");
+  }, []);
+
   const exportHtml = useCallback(async () => {
     const s = stateRef.current;
     if (!s.currentFile || !s.doc) return;
@@ -362,6 +411,9 @@ export default function App() {
       case "mode-edit":
         void switchMode("edit");
         break;
+      case "toggle-zen":
+        toggleZen();
+        break;
       case "toggle-sidebar":
         setSidebarVisible((v) => !v);
         break;
@@ -401,6 +453,39 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [info]);
 
+  // Mirror zen preferences onto documentElement for the CSS side.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("zen-on", zenOn);
+    root.classList.toggle("zen-dim-blur", zenCfg.effect === "dim-blur");
+    root.classList.toggle("zen-emphasis", zenCfg.emphasis);
+    root.style.setProperty(
+      "--zen-dim",
+      zenCfg.effect === "dim-blur" ? "0.15" : "0.22",
+    );
+  }, [zenOn, zenCfg]);
+
+  // Zen keyboard navigation: Esc exits, ←/→ (or j/k) jump between sections.
+  useEffect(() => {
+    if (!zenOn || mode !== "read" || searchOpen || settingsOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setZenOn(false);
+        return;
+      }
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft" && e.key !== "j" && e.key !== "k") {
+        return;
+      }
+      const ctl = zenCtlRef.current;
+      if (!ctl) return;
+      const current = zenPosRef.current?.idx ?? 0;
+      ctl.jumpTo(e.key === "ArrowRight" || e.key === "j" ? current + 1 : current - 1);
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zenOn, mode, searchOpen, settingsOpen]);
+
   // Restore last session (folder/file/theme) on startup.
   useEffect(() => {
     (async () => {
@@ -419,6 +504,7 @@ export default function App() {
           setBg(merged);
           applyBackground(merged);
         }
+        if (cfg.zen) setZenCfg(normalizeZen(cfg.zen));
         if (cfg.lastFolder) {
           await openFolder(cfg.lastFolder);
           if (cfg.lastFile) await openFile(cfg.lastFile);
@@ -506,6 +592,15 @@ export default function App() {
     if (path) updateBg({ path, enabled: true });
   }, [updateBg]);
 
+  const updateZenCfg = useCallback(
+    (patch: Partial<ResolvedZen>) => {
+      const next = normalizeZen({ ...stateRef.current.zenCfg, ...patch });
+      setZenCfg(next);
+      persist({ zen: next });
+    },
+    [persist],
+  );
+
   const bgFileName = bg.path?.split(/[\\/]/).pop() ?? null;
 
   const jumpToHeading = useCallback(
@@ -557,6 +652,15 @@ export default function App() {
         >
           搜索
         </button>
+        {doc && !doc.chunked && (
+          <button
+            className={`tool-btn${zenOn ? " active" : ""}`}
+            onClick={toggleZen}
+            title="专注模式 (Ctrl+Shift+Z, Esc 退出)"
+          >
+            专注
+          </button>
+        )}
         <select
           className="theme-select"
           value={themeName}
@@ -617,7 +721,16 @@ export default function App() {
                       onActiveHeading={setActiveHeading}
                     />
                   ) : (
-                    <Reader doc={doc} dark={themeDark} onActiveHeading={setActiveHeading} />
+                    <Reader
+                      doc={doc}
+                      dark={themeDark}
+                      onActiveHeading={setActiveHeading}
+                      zenOn={zenOn && mode === "read"}
+                      zenLevel={zenCfg.level}
+                      onZenPos={setZenPos}
+                      onZenUnavailable={handleZenUnavailable}
+                      onZenController={(ctl) => (zenCtlRef.current = ctl)}
+                    />
                   )}
                 </div>
               ) : (
@@ -638,6 +751,11 @@ export default function App() {
                   {currentFile?.split(/[\\/]/).pop()}
                 </span>
                 <span>{mode === "read" ? "阅读视图" : "源码模式"}</span>
+                {zenOn && mode === "read" && zenPos && (
+                  <span>
+                    专注 {zenPos.idx + 1}/{zenPos.total}
+                  </span>
+                )}
                 <span>{doc.encoding}</span>
                 <span>{doc.eol.toUpperCase()}</span>
                 {dirty && <span className="status-dirty">未保存</span>}
@@ -771,6 +889,43 @@ export default function App() {
             </label>
             <p className="setting-hint">
               背景图仅作用于阅读区。蒙版颜色随主题自动适配:浅色主题叠白纱、深色主题叠暗纱。
+            </p>
+            <div className="setting-divider">专注模式 (Zen)</div>
+            <label className="setting-row">
+              <span>分节级别</span>
+              <select
+                className="theme-select"
+                value={zenCfg.level}
+                onChange={(e) => updateZenCfg({ level: e.target.value as ResolvedZen["level"] })}
+              >
+                <option value="auto">自动</option>
+                <option value="h1">H1</option>
+                <option value="h2">H2</option>
+                <option value="h3">H3</option>
+              </select>
+            </label>
+            <label className="setting-row">
+              <span>效果强度</span>
+              <select
+                className="theme-select"
+                value={zenCfg.effect}
+                onChange={(e) => updateZenCfg({ effect: e.target.value as ResolvedZen["effect"] })}
+              >
+                <option value="dim">仅调暗</option>
+                <option value="dim-blur">调暗 + 模糊</option>
+              </select>
+            </label>
+            <label className="setting-row">
+              <span>重点增强 (粗体放大、代码荧光、高亮)</span>
+              <input
+                type="checkbox"
+                checked={zenCfg.emphasis}
+                onChange={(e) => updateZenCfg({ emphasis: e.target.checked })}
+              />
+            </label>
+            <p className="setting-hint">
+              专注模式只保留当前章节清晰,其余调暗;←/→ 或 j/k 跳转章节,Esc 退出。
+              文中可用 ==高亮== 语法手动标记重点。
             </p>
             <p className="setting-hint">
               端口修改后,下次启动预览服务生效。当前主题:{THEME_LABELS[themeName]}

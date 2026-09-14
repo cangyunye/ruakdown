@@ -87,6 +87,13 @@ body {
   border-color: var(--accent);
 }
 
+.tool-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .theme-select {
   padding: 4px 8px;
   border: 1px solid var(--border);
@@ -319,6 +326,73 @@ body {
   backdrop-filter: blur(12px) saturate(1.05);
   -webkit-backdrop-filter: blur(12px) saturate(1.05);
   box-shadow: 0 0 32px rgba(0, 0, 0, 0.28);
+}
+
+/* ---------- zen (focus) mode ---------- */
+
+/* Toggled via `zen-on` on documentElement; `zen-dim-blur` upgrades dimming
+   with blur, `zen-emphasis` enables the emphasis boost. Emphasis styles apply
+   to the whole body (not just the active section) so activating a section
+   never reflows text. Only opacity/filter animate — both are compositing
+   friendly and never trigger layout. */
+
+:root.zen-on .md-body .zen-section {
+  opacity: var(--zen-dim, 0.22);
+  transition:
+    opacity 0.3s ease,
+    filter 0.3s ease;
+}
+
+:root.zen-on.zen-dim-blur .md-body .zen-section {
+  filter: blur(2px) saturate(0.85);
+}
+
+:root.zen-on .md-body .zen-section.zen-active {
+  opacity: 1;
+  filter: none;
+}
+
+/* Emphasis boost (zen + setting on): one-shot layout change at toggle time. */
+
+:root.zen-on.zen-emphasis .md-body strong {
+  font-size: 1.05em;
+  background: linear-gradient(transparent 58%, var(--accent-soft) 58%);
+  border-radius: 2px;
+  padding: 0 0.08em;
+}
+
+:root.zen-on.zen-emphasis .md-body code {
+  box-shadow:
+    0 0 0 1px var(--accent-soft),
+    0 0 10px var(--accent-soft);
+}
+
+:root.zen-on.zen-emphasis .md-body pre code {
+  box-shadow: none;
+}
+
+:root.zen-on.zen-emphasis .md-body mark {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  padding: 0.05em 0.15em;
+  border-radius: 3px;
+  box-shadow: 0 0 10px var(--accent-soft);
+}
+
+:root.zen-on.zen-emphasis .md-body blockquote {
+  border-left: 5px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+/* mark renders with default yellow when zen emphasis is off; tone it down. */
+
+.md-body mark {
+  background: var(--accent-soft);
+  color: inherit;
+  padding: 0.05em 0.15em;
+  border-radius: 3px;
 }
 
 .editor-wrap {

@@ -17,6 +17,19 @@ pub struct BackgroundConfig {
     pub style: Option<String>,
 }
 
+/// Zen (focus) reading mode preferences; the on/off toggle itself is a
+/// session state and not persisted.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ZenConfig {
+    /// "auto" (first heading level with >= 2 headings), "h1", "h2" or "h3".
+    pub level: Option<String>,
+    /// "dim" or "dim-blur".
+    pub effect: Option<String>,
+    /// Emphasis boost for strong/code/mark/blockquote while in zen mode.
+    pub emphasis: Option<bool>,
+}
+
 /// Pure config store: no tauri dependency; callers resolve the file path.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -27,6 +40,7 @@ pub struct Config {
     pub serve_port: Option<u16>,
     pub autosave: Option<bool>,
     pub background: Option<BackgroundConfig>,
+    pub zen: Option<ZenConfig>,
 }
 
 pub fn load(path: &Path) -> Config {

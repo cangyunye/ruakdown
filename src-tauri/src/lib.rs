@@ -76,11 +76,20 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let mi_zen = MenuItem::with_id(
+                handle,
+                "toggle-zen",
+                "专注模式",
+                true,
+                Some("CmdOrCtrl+Shift+Z"),
+            )?;
             let view_menu = SubmenuBuilder::new(handle, "视图")
                 .item(&mi_search)
                 .separator()
                 .item(&mi_mode_read)
                 .item(&mi_mode_edit)
+                .separator()
+                .item(&mi_zen)
                 .separator()
                 .item(&mi_sidebar)
                 .build()?;

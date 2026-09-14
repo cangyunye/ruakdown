@@ -62,6 +62,15 @@ export interface BackgroundConfig {
   style: "paper" | "frosted" | null;
 }
 
+export interface ZenConfig {
+  /** "auto", "h1", "h2" or "h3". */
+  level: "auto" | "h1" | "h2" | "h3" | null;
+  /** "dim" or "dim-blur". */
+  effect: "dim" | "dim-blur" | null;
+  /** Emphasis boost for strong/code/mark/blockquote in zen mode. */
+  emphasis: boolean | null;
+}
+
 export interface AppConfig {
   lastFolder: string | null;
   lastFile: string | null;
@@ -69,6 +78,7 @@ export interface AppConfig {
   servePort: number | null;
   autosave: boolean | null;
   background: BackgroundConfig | null;
+  zen: ZenConfig | null;
 }
 
 export interface ThemeInfo {
