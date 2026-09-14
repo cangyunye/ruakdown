@@ -100,10 +100,28 @@ pub fn run() {
                 MenuItem::with_id(handle, "theme-dark", "暗色", true, None::<&str>)?;
             let mi_theme_graphite =
                 MenuItem::with_id(handle, "theme-graphite", "石墨", true, None::<&str>)?;
+            let mi_theme_sunset_coast = MenuItem::with_id(
+                handle,
+                "theme-sunset-coast",
+                "夕阳海岸",
+                true,
+                None::<&str>,
+            )?;
+            let mi_theme_verdant =
+                MenuItem::with_id(handle, "theme-verdant", "无边绿意", true, None::<&str>)?;
+            let mi_theme_sky =
+                MenuItem::with_id(handle, "theme-sky", "蓝天白云", true, None::<&str>)?;
+            let mi_theme_newsprint =
+                MenuItem::with_id(handle, "theme-newsprint", "陈旧报纸", true, None::<&str>)?;
             let theme_menu = SubmenuBuilder::new(handle, "主题")
                 .item(&mi_theme_light)
                 .item(&mi_theme_dark)
                 .item(&mi_theme_graphite)
+                .separator()
+                .item(&mi_theme_sunset_coast)
+                .item(&mi_theme_verdant)
+                .item(&mi_theme_sky)
+                .item(&mi_theme_newsprint)
                 .build()?;
 
             let mi_serve_local = MenuItem::with_id(

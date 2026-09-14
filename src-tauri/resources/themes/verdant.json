@@ -1,0 +1,24 @@
+{
+  "name": "无边绿意",
+  "dark": false,
+  "vars": {
+    "--bg": "#f6fbf4",
+    "--panel": "#e9f4e4",
+    "--border": "#cce1c4",
+    "--text": "#2c3d2b",
+    "--muted": "#6e8567",
+    "--heading": "#2e7d43",
+    "--link": "#2f8a4a",
+    "--accent": "#3a9552",
+    "--accent-soft": "rgba(58, 149, 82, 0.12)",
+    "--code-bg": "#e9f3e3",
+    "--code-text": "#1e6b34",
+    "--pre-bg": "#eff8ea",
+    "--pre-border": "#d7e7ce",
+    "--quote-border": "#7cb26b",
+    "--quote-text": "#6e8567",
+    "--table-border": "#cce1c4",
+    "--mermaid-bg": "#f6fbf4",
+    "--reader-overlay-rgb": "246, 251, 244"
+  }
+}

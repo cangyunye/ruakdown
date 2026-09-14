@@ -1,0 +1,24 @@
+{
+  "name": "陈旧报纸",
+  "dark": false,
+  "vars": {
+    "--bg": "#f3ecd9",
+    "--panel": "#eae1c7",
+    "--border": "#d5c8a2",
+    "--text": "#3d3527",
+    "--muted": "#857a5e",
+    "--heading": "#5c4a2c",
+    "--link": "#8a5a1e",
+    "--accent": "#9a6b23",
+    "--accent-soft": "rgba(154, 107, 35, 0.14)",
+    "--code-bg": "#ece2c9",
+    "--code-text": "#79481a",
+    "--pre-bg": "#ede3cb",
+    "--pre-border": "#d7caa4",
+    "--quote-border": "#b0995f",
+    "--quote-text": "#857a5e",
+    "--table-border": "#d5c8a2",
+    "--mermaid-bg": "#f3ecd9",
+    "--reader-overlay-rgb": "243, 236, 217"
+  }
+}

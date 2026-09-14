@@ -27,6 +27,10 @@ const THEME_LABELS: Record<string, string> = {
   light: "浅色",
   dark: "暗色",
   graphite: "石墨",
+  "sunset-coast": "夕阳海岸",
+  verdant: "无边绿意",
+  sky: "蓝天白云",
+  newsprint: "陈旧报纸",
 };
 
 /** BackgroundConfig with all optional fields resolved to concrete values. */
@@ -389,6 +393,10 @@ export default function App() {
   // Latest handlers for native menu events.
   const menuRouteRef = useRef<(id: string) => void>(() => {});
   menuRouteRef.current = (id: string) => {
+    if (id.startsWith("theme-")) {
+      void changeTheme(id.slice("theme-".length));
+      return;
+    }
     switch (id) {
       case "open-folder":
         void chooseFolder();
@@ -416,11 +424,6 @@ export default function App() {
         break;
       case "toggle-sidebar":
         setSidebarVisible((v) => !v);
-        break;
-      case "theme-light":
-      case "theme-dark":
-      case "theme-graphite":
-        void changeTheme(id.replace("theme-", ""));
         break;
       case "serve-local":
         void startServe(false);

@@ -18,8 +18,20 @@ pub struct Theme {
 const LIGHT: &str = include_str!("../../resources/themes/light.json");
 const DARK: &str = include_str!("../../resources/themes/dark.json");
 const GRAPHITE: &str = include_str!("../../resources/themes/graphite.json");
+const SUNSET_COAST: &str = include_str!("../../resources/themes/sunset-coast.json");
+const VERDANT: &str = include_str!("../../resources/themes/verdant.json");
+const SKY: &str = include_str!("../../resources/themes/sky.json");
+const NEWSPRINT: &str = include_str!("../../resources/themes/newsprint.json");
 
-pub const BUILTIN_IDS: &[&str] = &["light", "dark", "graphite"];
+pub const BUILTIN_IDS: &[&str] = &[
+    "light",
+    "dark",
+    "graphite",
+    "sunset-coast",
+    "verdant",
+    "sky",
+    "newsprint",
+];
 
 pub fn list() -> Vec<ThemeInfo> {
     BUILTIN_IDS
@@ -33,6 +45,10 @@ pub fn get(id: &str) -> Option<Theme> {
         "light" => LIGHT,
         "dark" => DARK,
         "graphite" => GRAPHITE,
+        "sunset-coast" => SUNSET_COAST,
+        "verdant" => VERDANT,
+        "sky" => SKY,
+        "newsprint" => NEWSPRINT,
         _ => return None,
     };
     serde_json::from_str(raw).ok()
@@ -44,9 +60,15 @@ mod tests {
 
     #[test]
     fn builtin_themes_parse() {
-        assert_eq!(list().len(), 3);
+        assert_eq!(list().len(), 7);
         assert!(get("dark").unwrap().dark);
         assert!(!get("light").unwrap().dark);
         assert!(get("dark").unwrap().vars.contains_key("--bg"));
+        // All four scenic additions are light themes.
+        for id in ["sunset-coast", "verdant", "sky", "newsprint"] {
+            let t = get(id).unwrap_or_else(|| panic!("missing theme: {id}"));
+            assert!(!t.dark, "{id} should be a light theme");
+            assert!(t.vars.contains_key("--reader-overlay-rgb"));
+        }
     }
 }

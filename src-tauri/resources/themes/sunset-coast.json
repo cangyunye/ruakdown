@@ -1,0 +1,24 @@
+{
+  "name": "夕阳海岸",
+  "dark": false,
+  "vars": {
+    "--bg": "#fffaf4",
+    "--panel": "#fdf1e3",
+    "--border": "#f0dbc4",
+    "--text": "#4b3a2f",
+    "--muted": "#a08770",
+    "--heading": "#d95f2b",
+    "--link": "#e06a2e",
+    "--accent": "#e06a2e",
+    "--accent-soft": "rgba(224, 106, 46, 0.12)",
+    "--code-bg": "#faeedd",
+    "--code-text": "#b04a1c",
+    "--pre-bg": "#fdf3e7",
+    "--pre-border": "#efdcc6",
+    "--quote-border": "#f2a65a",
+    "--quote-text": "#a08770",
+    "--table-border": "#f0dbc4",
+    "--mermaid-bg": "#fffaf4",
+    "--reader-overlay-rgb": "255, 250, 244"
+  }
+}

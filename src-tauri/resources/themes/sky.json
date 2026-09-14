@@ -1,0 +1,24 @@
+{
+  "name": "蓝天白云",
+  "dark": false,
+  "vars": {
+    "--bg": "#f4faff",
+    "--panel": "#e7f2fb",
+    "--border": "#c4dcf0",
+    "--text": "#24384a",
+    "--muted": "#64809a",
+    "--heading": "#1d6fb8",
+    "--link": "#1d6fb8",
+    "--accent": "#2b8cd9",
+    "--accent-soft": "rgba(43, 140, 217, 0.12)",
+    "--code-bg": "#e7f1fa",
+    "--code-text": "#145c95",
+    "--pre-bg": "#edf6fd",
+    "--pre-border": "#d1e4f4",
+    "--quote-border": "#7fb8e0",
+    "--quote-text": "#64809a",
+    "--table-border": "#c4dcf0",
+    "--mermaid-bg": "#f4faff",
+    "--reader-overlay-rgb": "244, 250, 255"
+  }
+}
