@@ -19,6 +19,7 @@
   --quote-text: #59636e;
   --table-border: #d1d9e0;
   --mermaid-bg: #ffffff;
+  --reader-overlay-rgb: 255, 255, 255;
 }
 
 * {
@@ -254,6 +255,7 @@ body {
   display: flex;
   justify-content: center;
   overflow: hidden;
+  position: relative;
 }
 
 /* .md-body is itself the scroll container so heading offsetTop/scrollTop
@@ -267,6 +269,56 @@ body {
   padding: 40px 48px 80px;
   line-height: 1.75;
   color: var(--text);
+}
+
+/* ---------- reader background image ---------- */
+
+/* Enabled from JS by toggling `bg-on` plus `bg-style-paper`/`bg-style-frosted`
+   on documentElement. --reader-overlay-rgb comes from the active theme JSON, so
+   the same mask strength reads as a white veil on light themes and a dark veil
+   on dark ones. */
+
+:root.bg-on .reader-wrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: var(--reader-bg-image, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(var(--reader-bg-blur, 0px));
+  /* Push blurred edges outside the clip so they don't fade in place. */
+  transform: scale(1.08);
+  pointer-events: none;
+}
+
+:root.bg-on .reader-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(
+    var(--reader-overlay-rgb, 255, 255, 255),
+    var(--reader-bg-overlay, 0.8)
+  );
+  pointer-events: none;
+}
+
+:root.bg-on .reader-wrap .md-body {
+  z-index: 1;
+}
+
+:root.bg-on.bg-style-paper .md-body {
+  background: var(--bg);
+  box-shadow: 0 0 32px rgba(0, 0, 0, 0.28);
+}
+
+:root.bg-on.bg-style-frosted .md-body {
+  background: rgba(var(--reader-overlay-rgb, 255, 255, 255), 0.5);
+  backdrop-filter: blur(12px) saturate(1.05);
+  -webkit-backdrop-filter: blur(12px) saturate(1.05);
+  box-shadow: 0 0 32px rgba(0, 0, 0, 0.28);
 }
 
 .editor-wrap {
@@ -449,6 +501,33 @@ body {
   font-size: 13px;
 }
 
+.setting-row input[type="range"] {
+  accent-color: var(--accent);
+}
+
+.setting-divider {
+  margin: 10px 0 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.setting-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.setting-controls .tool-btn {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .setting-hint {
   color: var(--muted);
   font-size: 12px;
@@ -464,6 +543,194 @@ body {
   padding: 6px 16px;
   font-size: 13px;
 }
+
+/* ---------- workspace search modal ---------- */
+
+.search-modal {
+  width: 680px;
+  max-width: 92vw;
+  height: 560px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px 10px;
+}
+
+.search-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.search-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: var(--accent);
+}
+
+.search-case-btn {
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.search-case-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.search-status {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 2px 6px;
+  min-height: 28px;
+}
+
+.search-results {
+  flex: 1;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.search-file-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.search-file-name {
+  color: var(--heading);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-name-tag {
+  flex: none;
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.search-file-count {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 0 7px;
+  line-height: 16px;
+}
+
+.search-hits-cap {
+  color: var(--muted);
+  font-size: 11.5px;
+  padding: 2px 6px 4px 58px;
+}
+
+.search-more {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 10px 0 14px;
+}
+
+.search-hit {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-hit.selected,
+.search-hit:hover {
+  background: var(--accent-soft);
+}
+
+.search-hit-ln {
+  flex: 0 0 42px;
+  text-align: right;
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.search-hit-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-hit-text mark {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.search-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 36px 0;
+  font-size: 13px;
+}
+
+/* Flash highlight for jumping to a match after opening a file. */
+.search-jump-mark {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+@keyframes search-jump-pulse {
+  0%,
+  100% {
+    background: var(--accent-soft);
+  }
+  50% {
+    background: var(--accent);
+  }
+}
+
+.search-jump-flash {
+  animation: search-jump-pulse 0.7s ease-in-out 2;
+  border-radius: 3px;
+}
+
 
 .md-body h1,
 .md-body h2,

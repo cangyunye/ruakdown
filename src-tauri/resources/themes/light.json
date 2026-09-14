@@ -18,6 +18,7 @@
     "--quote-border": "#d1d9e0",
     "--quote-text": "#59636e",
     "--table-border": "#d1d9e0",
-    "--mermaid-bg": "#ffffff"
+    "--mermaid-bg": "#ffffff",
+    "--reader-overlay-rgb": "255, 255, 255"
   }
 }

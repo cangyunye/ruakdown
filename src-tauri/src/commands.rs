@@ -1,4 +1,4 @@
-use crate::core::{config as config_store, export, file, large_doc, markdown, serve, theme, watch};
+use crate::core::{config as config_store, export, file, large_doc, markdown, search, serve, theme, watch};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -13,23 +13,30 @@ fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("config.json"))
 }
 
+// Native dialog callbacks are dispatched on the main thread, while sync
+// commands *run* on the main thread — awaiting them there deadlocks (frozen
+// window on macOS). So every dialog command is async and blocks a worker
+// thread on the reply channel instead.
 #[tauri::command]
-pub fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
+pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     app.dialog()
         .file()
         .pick_folder(move |fp| {
             let _ = tx.send(fp.map(|f| f.into_path()).transpose());
         });
-    let picked: Option<PathBuf> = rx
-        .recv()
-        .map_err(|_| "dialog closed".to_string())?
-        .map_err(|e| e.to_string())?;
+    let picked: Option<PathBuf> = tauri::async_runtime::spawn_blocking(move || {
+        rx.recv()
+            .map_err(|_| "dialog closed".to_string())?
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     Ok(picked.map(|p| dunce::simplified(&p).to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
-pub fn pick_file(app: AppHandle) -> Result<Option<String>, String> {
+pub async fn pick_file(app: AppHandle) -> Result<Option<String>, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     app.dialog()
         .file()
@@ -38,20 +45,69 @@ pub fn pick_file(app: AppHandle) -> Result<Option<String>, String> {
         .pick_file(move |fp| {
             let _ = tx.send(fp.map(|f| f.into_path()).transpose());
         });
-    let picked: Option<PathBuf> = rx
-        .recv()
-        .map_err(|_| "dialog closed".to_string())?
-        .map_err(|e| e.to_string())?;
+    let picked: Option<PathBuf> = tauri::async_runtime::spawn_blocking(move || {
+        rx.recv()
+            .map_err(|_| "dialog closed".to_string())?
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     Ok(picked.map(|p| dunce::simplified(&p).to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
-pub fn load_tree(root: String) -> Result<Vec<file::TreeNode>, String> {
+pub async fn pick_image(app: AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .add_filter(
+            "图片",
+            &["png", "jpg", "jpeg", "webp", "bmp", "gif", "avif"],
+        )
+        .pick_file(move |fp| {
+            let _ = tx.send(fp.map(|f| f.into_path()).transpose());
+        });
+    let picked: Option<PathBuf> = tauri::async_runtime::spawn_blocking(move || {
+        rx.recv()
+            .map_err(|_| "dialog closed".to_string())?
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(picked.map(|p| dunce::simplified(&p).to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
+pub async fn load_tree(root: String) -> Result<Vec<file::TreeNode>, String> {
+    // Directory scan can take a while on big folders; keep it off the main thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = PathBuf::from(&root);
+        if !path.is_dir() {
+            return Err(format!("not a directory: {root}"));
+        }
+        Ok(file::build_tree(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn search_docs(
+    root: String,
+    query: String,
+    case_sensitive: bool,
+) -> Result<search::SearchOutcome, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return Ok(search::SearchOutcome::default());
+    }
     let path = PathBuf::from(&root);
     if !path.is_dir() {
         return Err(format!("not a directory: {root}"));
     }
-    Ok(file::build_tree(&path))
+    tauri::async_runtime::spawn_blocking(move || Ok(search::search(&path, &query, case_sensitive)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[derive(Debug, Serialize)]
@@ -177,22 +233,27 @@ fn backups_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 #[tauri::command]
-pub fn save_file(
+pub async fn save_file(
     app: AppHandle,
     path: String,
     text: String,
     encoding: String,
     eol: String,
 ) -> Result<SaveResult, String> {
-    let file_path = PathBuf::from(&path);
-    let backup =
-        file::backup_file(&file_path, &backups_dir(&app)?, 10).map_err(|e| e.to_string())?;
-    let bytes =
-        file::write_text(&file_path, &text, &encoding, &eol).map_err(|e| e.to_string())?;
-    Ok(SaveResult {
-        bytes,
-        backup: backup.map(|b| b.to_string_lossy().into_owned()),
+    // Backup + encode + write can be slow for large docs; keep off the main thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let file_path = PathBuf::from(&path);
+        let backup =
+            file::backup_file(&file_path, &backups_dir(&app)?, 10).map_err(|e| e.to_string())?;
+        let bytes =
+            file::write_text(&file_path, &text, &encoding, &eol).map_err(|e| e.to_string())?;
+        Ok(SaveResult {
+            bytes,
+            backup: backup.map(|b| b.to_string_lossy().into_owned()),
+        })
     })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -245,7 +306,10 @@ pub fn apply_theme(app: AppHandle, name: String) -> Result<theme::Theme, String>
 // ---------- export ----------
 
 #[tauri::command]
-pub fn pick_export_path(app: AppHandle, default_name: String) -> Result<Option<String>, String> {
+pub async fn pick_export_path(
+    app: AppHandle,
+    default_name: String,
+) -> Result<Option<String>, String> {
     let (tx, rx) = std::sync::mpsc::channel();
     app.dialog()
         .file()
@@ -254,44 +318,52 @@ pub fn pick_export_path(app: AppHandle, default_name: String) -> Result<Option<S
         .save_file(move |fp| {
             let _ = tx.send(fp.map(|f| f.into_path()).transpose());
         });
-    let picked: Option<PathBuf> = rx
-        .recv()
-        .map_err(|_| "dialog closed".to_string())?
-        .map_err(|e| e.to_string())?;
+    let picked: Option<PathBuf> = tauri::async_runtime::spawn_blocking(move || {
+        rx.recv()
+            .map_err(|_| "dialog closed".to_string())?
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     Ok(picked.map(|p| dunce::simplified(&p).to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
-pub fn export_html(
+pub async fn export_html(
     app: AppHandle,
     source_path: String,
     out_path: String,
     theme_id: String,
     inline_mermaid: bool,
 ) -> Result<usize, String> {
-    let source = file::read_text(Path::new(&source_path))
-        .map_err(|e| e.to_string())?
-        .text;
-    let mermaid_js: Option<String> = if inline_mermaid {
-        app.path()
-            .resource_dir()
-            .ok()
-            .and_then(|dir| std::fs::read_to_string(dir.join("resources/mermaid.min.js")).ok())
-    } else {
-        None
-    };
-    let title = Path::new(&source_path)
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "文档".to_string());
-    let html = export::export_html(
-        &source,
-        mermaid_js.as_deref(),
-        &export::ExportOptions { theme_id, title },
-    );
-    let bytes = html.len();
-    std::fs::write(&out_path, html).map_err(|e| format!("写入失败: {e}"))?;
-    Ok(bytes)
+    // Rendering + writing a full offline HTML is heavy; keep off the main thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = file::read_text(Path::new(&source_path))
+            .map_err(|e| e.to_string())?
+            .text;
+        let mermaid_js: Option<String> = if inline_mermaid {
+            app.path()
+                .resource_dir()
+                .ok()
+                .and_then(|dir| std::fs::read_to_string(dir.join("resources/mermaid.min.js")).ok())
+        } else {
+            None
+        };
+        let title = Path::new(&source_path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "文档".to_string());
+        let html = export::export_html(
+            &source,
+            mermaid_js.as_deref(),
+            &export::ExportOptions { theme_id, title },
+        );
+        let bytes = html.len();
+        std::fs::write(&out_path, html).map_err(|e| format!("写入失败: {e}"))?;
+        Ok(bytes)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ---------- preview server ----------

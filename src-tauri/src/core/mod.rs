@@ -3,6 +3,7 @@ pub mod export;
 pub mod file;
 pub mod large_doc;
 pub mod markdown;
+pub mod search;
 pub mod serve;
 pub mod theme;
 pub mod watch;

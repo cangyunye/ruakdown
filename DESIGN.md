@@ -177,16 +177,20 @@ dunce = "1"
 - **M0–M4 全部里程碑**。工具链 Rust 1.96 / Node 24 / pnpm 10.29;Tauri 2.11.x。
 - 阅读 MVP:文件夹树(notify 8 watch + 400ms 防抖批量事件)、pulldown-cmark 渲染、大纲(锚点注入 + 滚动同步高亮)、Mermaid 12 按需动态 import(暗色主题同步重渲染)、三主题(CSS 变量 + 窗口深浅色标题栏跟随)、会话恢复(上次文件夹/文件/主题/设置)。
 - 编辑:CodeMirror 6 源码模式(懒加载分包)、阅读/源码切换、自动保存(1.5s 防抖,已落盘实测)、Ctrl+S、逐文件保持编码(UTF-8/BOM/UTF-16/GBK)与 CRLF/LF(单测覆盖)、保存前滚动备份(保留 10 份,单测覆盖)、外部修改检测(未保存时提示条)。
-- 输出:导出离线 HTML(同渲染管线 + 内联主题 CSS + 内嵌 mermaid.min.js 5.6MB 资源,CDN 兜底)、axum 0.8 内嵌预览 Serve(`GET /` `GET /api/doc` `GET /static/*` 文档目录图片,CORS 全开,3s 轮询刷新)、原生菜单(文件/视图/主题/服务/帮助,快捷键 Ctrl+Shift+O / Ctrl+O / Ctrl+S / Ctrl+E)。
+- 输出:导出离线 HTML(同渲染管线 + 内联主题 CSS + 内嵌 mermaid.min.js 5.6MB 资源,CDN 兜底)、axum 0.8 内嵌预览 Serve(`GET /` `GET /api/doc` `GET /static/*` 文档目录图片,CORS 全开,3s 轮询刷新)、原生菜单(文件/视图/主题/服务/帮助,快捷键 Ctrl+Shift+O / Ctrl+O / Ctrl+S / Ctrl+E / Ctrl+Shift+F)。
 - Windows 打磨:单实例(二次启动唤起主窗口,已实测)、`.md`/`.markdown` 文件关联(NSIS,currentUser 安装)、设置弹窗(自动保存开关 + Serve 端口,持久化)。
+- 跨平台打包:`tauri.conf.json` 的 `bundle.targets` 为 `all`,各平台由 `tauri.{windows,macos,linux}.conf.json` 收敛——Windows→NSIS、macOS→app+dmg、Linux→deb;Taskfile `task build` 按平台输出对应安装包路径。
 
 实现备注:
 - 内置主题以 `include_str!` 嵌入二进制(`src-tauri/resources/themes/`),自定义主题导入导出尚未实现(M5)。
 - Serve 预览页的 Mermaid 走 CDN;导出 HTML 的 Mermaid 走本地内嵌资源,资源缺失时回退 CDN。
 - 导出 HTML 的图片仍为相对引用,base64 内嵌未实现(M5)。
 - Mermaid 渲染安全级别 `strict`;原始 HTML 透传 pulldown-cmark,信任本地文档(前端未暴露全局 IPC)。
+- **所有原生文件对话框命令(pick_folder/pick_file/pick_export_path)必须是 async + spawn_blocking 等待回调**:Tauri 同步命令在主线程执行,而对话框回调也要主线程分发,同步等待会在 macOS 上直接死锁(Windows 下 IPC 回调在不同线程,故此问题仅在 mac 复现,2026-09-14 修复)。load_tree/save_file/export_html 同理移入 spawn_blocking,避免大目录扫描/大文件写入阻塞 UI。
 
-M5(未开始):WYSIWYG(ProseMirror core 手搓)、macOS 适配、全文搜索、PDF 打印、图片 base64 内嵌导出、主题导入导出。
+M5(未开始):WYSIWYG(ProseMirror core 手搓)、macOS 适配、文件内查找/替换、PDF 打印、图片 base64 内嵌导出、主题导入导出。
+
+M5 部分提前落地——目录内搜索(2026-09-14 已完成):Rust `core/search.rs` 递归搜索已打开目录下全部 `.md`/`.markdown`(复用 `collect_markdown_files` 的遍历规则与 `read_text` 的编码检测,GBK/UTF-16 可直接匹配),内容按行匹配 + 文件名匹配(文件名命中排前);上限保护(单文件 50 条/总量 2000 条/跳过 >16MB);前端 `SearchModal` 中央模态框,输入防抖 500ms、关键词 ≥2 字符才触发、同一时刻只允许一个目录扫描(输入期间的触发合并为最新一次,结束后补跑)、渲染上限 300 条(状态行仍显示真实计数),结果按文件分组展示命中行片段(关键词 `<mark>` 高亮),Ctrl+Shift+F(视图菜单「目录内搜索」)或标题栏「搜索」按钮打开,↑/↓/Enter/Esc 键盘导航;点击命中项打开文件并滚动定位到首个匹配处(阅读模式 best-effort,分块大文档/源码模式仅打开不定位)。文件内 Ctrl+F 查找仍归 M5。
 
 ## 十二、构建(仓库根目录 `Taskfile.yml`,基于 go-task)
 
@@ -196,15 +200,15 @@ M5(未开始):WYSIWYG(ProseMirror core 手搓)、macOS 适配、全文搜索、P
 | `task install` | `pnpm install` |
 | `task dev` | 开发模式(tauri dev,Vite HMR + Rust 增量编译) |
 | `task check` | 快速检查:前端 `tsc + vite build` + Rust `cargo check` |
-| `task test` | Rust 单元测试(12 个) |
+| `task test` | Rust 单元测试(18 个) |
 | `task bench` | 大文档渲染基准(1/5/10MB,release + ignored test) |
-| `task build` | release + NSIS 安装包(内置 `CARGO_BUILD_JOBS=4`,防链接器 OOM) |
+| `task build` | release + 平台安装包(win→NSIS / mac→dmg / linux→deb;内置 `CARGO_BUILD_JOBS=4`,防链接器 OOM) |
 | `task build:frontend` | 仅构建前端(`dist/`) |
 | `task clean` | 清理 `dist/` 与 cargo target |
 
 - 前置依赖:Node + pnpm、Rust(MSVC 工具链)、WebView2(Win11 自带)、go-task。
 - **可移植性约定**:Taskfile 内的命令只使用 shell 内建(`printf`)与项目工具链(`node`/`pnpm`/`cargo`/`task`),**不依赖任何 Unix 工具**(`tr`/`rm`/`sed` 等)。原因:go-task 只提供 POSIX 解释器,外部命令仍需从 PATH 查找——Git Bash 里有 `tr` 而 cmd.exe 里没有,曾导致 `task build` 在 cmd 下报 `"tr" executable file not found`。删除文件统一用 `node -e "fs.rmSync(...)"`,避免 `rmdir`/`if exist` 这类平台专属语法。
-- 安装包路径:`${CARGO_TARGET_DIR:-src-tauri/target}/release/bundle/nsis/Ruakdown_0.1.0_x64-setup.exe`。
+- 安装包路径:`${CARGO_TARGET_DIR:-src-tauri/target}/release/bundle/` 下,按平台:Windows `nsis/Ruakdown_0.1.0_x64-setup.exe`、macOS `dmg/Ruakdown_0.1.0_*.dmg`(另有 `macos/Ruakdown.app`)、Linux `deb/Ruakdown_0.1.0_*.deb`。
 - 已知环境坑:16 线程并行链接会触发 `LNK1102 内存不足`,故打包任务固定 `CARGO_BUILD_JOBS=4`;不要在 `tauri dev` 运行期间执行 `task build`(两者共用 target 目录会互相清产物)。
 
 ## 十三、M5-1 大文档分块渲染(2026-09-12 已完成)

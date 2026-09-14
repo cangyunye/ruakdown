@@ -1,10 +1,14 @@
 version: '3'
 
-# Ruakdown 构建任务(Windows-first)
+# Ruakdown 构建任务(跨平台: Windows / macOS / Linux)
 # 用法:task <任务名>;不带参数 = 列出全部任务
 #
-# 产物位置:若设置了 CARGO_TARGET_DIR(本机为 F:\cargotarget),安装包在该目录的
-# release/bundle/nsis/ 下;否则在 src-tauri/target/release/bundle/nsis/ 下。
+# 产物位置:若设置了 CARGO_TARGET_DIR,安装包在该目录的 release/bundle/ 下;
+# 否则在 src-tauri/target/release/bundle/ 下。各平台的安装包:
+#   windows → bundle/nsis/*-setup.exe
+#   macOS   → bundle/dmg/*.dmg 与 bundle/macos/Ruakdown.app
+#   linux   → bundle/deb/*.deb
+# 打包目标按平台定义在 src-tauri/tauri.{windows,macos,linux}.conf.json。
 
 vars:
   APP_NAME: Ruakdown
@@ -69,14 +73,21 @@ tasks:
       - cargo test bench_large_document --release -- --ignored --nocapture
 
   build:
-    desc: 构建 release + NSIS 安装包(限制并行防链接器内存不足)
+    desc: 构建 release + 平台安装包(win→nsis / mac→dmg / linux→deb;限制并行防链接器内存不足)
     deps: [install]
     env:
       CARGO_BUILD_JOBS: '4'
     cmds:
       - pnpm tauri build
       - cmd: printf '%s\n' "安装包输出 {{.TARGET_DIR}}\release\bundle\nsis\{{.APP_NAME}}_{{.VERSION}}_x64-setup.exe"
-        silent: false
+        platforms: [windows]
+        silent: true
+      - cmd: printf '%s\n' "安装包输出 {{.TARGET_DIR}}/release/bundle/dmg/{{.APP_NAME}}_{{.VERSION}}_*.dmg 和 {{.TARGET_DIR}}/release/bundle/macos/{{.APP_NAME}}.app"
+        platforms: [darwin]
+        silent: true
+      - cmd: printf '%s\n' "安装包输出 {{.TARGET_DIR}}/release/bundle/deb/{{.APP_NAME}}_{{.VERSION}}_*.deb"
+        platforms: [linux]
+        silent: true
 
   "build:frontend":
     desc: 仅构建前端(tsc + vite build,产物 dist/)

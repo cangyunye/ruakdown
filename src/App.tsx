@@ -1,16 +1,20 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   api,
   SERVE_PORT,
   type AppConfig,
+  type BackgroundConfig,
   type DocPayload,
   type TreeNode,
 } from "./ipc";
 import { applyTheme } from "./theme";
+import { scrollToText } from "./jumpToText";
 import { Sidebar, type SidebarTab } from "./components/Sidebar";
 import { Reader } from "./components/Reader";
+import SearchModal from "./components/SearchModal";
 import ChunkedReader, { type ChunkedReaderHandle } from "./components/ChunkedReader";
 
 const SourceEditor = lazy(() => import("./components/SourceEditor"));
@@ -22,6 +26,57 @@ const THEME_LABELS: Record<string, string> = {
   dark: "暗色",
   graphite: "石墨",
 };
+
+/** BackgroundConfig with all optional fields resolved to concrete values. */
+type ResolvedBg = {
+  enabled: boolean;
+  path: string | null;
+  blur: number;
+  overlay: number;
+  style: "paper" | "frosted";
+};
+
+const DEFAULT_BG: ResolvedBg = {
+  enabled: false,
+  path: null,
+  blur: 0,
+  overlay: 80,
+  style: "paper",
+};
+
+function normalizeBg(raw: Partial<BackgroundConfig> | null): ResolvedBg {
+  return {
+    enabled: raw?.enabled ?? DEFAULT_BG.enabled,
+    path: raw?.path ?? null,
+    blur: raw?.blur ?? DEFAULT_BG.blur,
+    overlay: raw?.overlay ?? DEFAULT_BG.overlay,
+    style: raw?.style === "frosted" ? "frosted" : "paper",
+  };
+}
+
+/** Mirror a BackgroundConfig onto documentElement classes and CSS vars. */
+function applyBackground(cfg: ResolvedBg): void {
+  const root = document.documentElement;
+  const on = !!cfg.enabled && !!cfg.path;
+  root.classList.toggle("bg-on", on);
+  root.classList.toggle("bg-style-paper", on && cfg.style !== "frosted");
+  root.classList.toggle("bg-style-frosted", on && cfg.style === "frosted");
+  if (on) {
+    root.style.setProperty(
+      "--reader-bg-image",
+      `url("${convertFileSrc(cfg.path!)}")`,
+    );
+    root.style.setProperty("--reader-bg-blur", `${cfg.blur ?? 0}px`);
+    root.style.setProperty(
+      "--reader-bg-overlay",
+      String((cfg.overlay ?? 80) / 100),
+    );
+  } else {
+    root.style.removeProperty("--reader-bg-image");
+    root.style.removeProperty("--reader-bg-blur");
+    root.style.removeProperty("--reader-bg-overlay");
+  }
+}
 
 export default function App() {
   const [root, setRoot] = useState<string | null>(null);
@@ -40,8 +95,10 @@ export default function App() {
   const [serveUrl, setServeUrl] = useState<string | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [autosaveOn, setAutosaveOn] = useState(true);
   const [servePort, setServePort] = useState(SERVE_PORT);
+  const [bg, setBg] = useState<ResolvedBg>(DEFAULT_BG);
 
   const autosaveRef = useRef(autosaveOn);
   autosaveRef.current = autosaveOn;
@@ -59,6 +116,7 @@ export default function App() {
     serveUrl,
     servePort,
     autosaveOn,
+    bg,
   });
   stateRef.current = {
     root,
@@ -69,6 +127,7 @@ export default function App() {
     serveUrl,
     servePort,
     autosaveOn,
+    bg,
   };
   const editTextRef = useRef("");
   const dirtyRef = useRef(false);
@@ -84,6 +143,7 @@ export default function App() {
         theme: s.themeName,
         servePort: servePortRef.current,
         autosave: autosaveRef.current,
+        background: s.bg,
         ...patch,
       })
       .catch(() => {});
@@ -189,6 +249,23 @@ export default function App() {
     if (path) await openFile(path);
   }, [openFile]);
 
+  // Open a file from search results, then scroll the rendered view to the
+  // first occurrence of the query. Read mode only; chunked docs (over 1MB)
+  // and the source editor are opened without positioning.
+  const handleSearchHit = useCallback(
+    async (path: string, query: string) => {
+      setSearchOpen(false);
+      await openFile(path);
+      if (!query || stateRef.current.mode !== "read") return;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          scrollToText(document.querySelector(".reader-wrap"), query);
+        });
+      });
+    },
+    [openFile],
+  );
+
   const reloadCurrent = useCallback(async () => {
     const s = stateRef.current;
     if (!s.currentFile) return;
@@ -270,6 +347,9 @@ export default function App() {
       case "open-file":
         void chooseFile();
         break;
+      case "search-dir":
+        setSearchOpen(true);
+        break;
       case "save":
         void saveDoc();
         break;
@@ -334,6 +414,11 @@ export default function App() {
           setServePort(cfg.servePort);
         }
         if (cfg.autosave != null) setAutosaveOn(cfg.autosave);
+        if (cfg.background) {
+          const merged = normalizeBg(cfg.background);
+          setBg(merged);
+          applyBackground(merged);
+        }
         if (cfg.lastFolder) {
           await openFolder(cfg.lastFolder);
           if (cfg.lastFile) await openFile(cfg.lastFile);
@@ -406,6 +491,23 @@ export default function App() {
     [persist],
   );
 
+  const updateBg = useCallback(
+    (patch: Partial<BackgroundConfig>) => {
+      const next = normalizeBg({ ...stateRef.current.bg, ...patch });
+      setBg(next);
+      applyBackground(next);
+      persist({ background: next });
+    },
+    [persist],
+  );
+
+  const pickBgImage = useCallback(async () => {
+    const path = await api.pickImage();
+    if (path) updateBg({ path, enabled: true });
+  }, [updateBg]);
+
+  const bgFileName = bg.path?.split(/[\\/]/).pop() ?? null;
+
   const jumpToHeading = useCallback(
     (id: string) => {
       if (stateRef.current.doc?.chunked) {
@@ -447,6 +549,13 @@ export default function App() {
         </button>
         <button className="tool-btn" onClick={chooseFile} title="打开文件">
           打开文件
+        </button>
+        <button
+          className="tool-btn"
+          onClick={() => setSearchOpen(true)}
+          title="目录内搜索 (Ctrl+Shift+F)"
+        >
+          搜索
         </button>
         <select
           className="theme-select"
@@ -565,6 +674,14 @@ export default function App() {
         </div>
       </div>
 
+      {searchOpen && (
+        <SearchModal
+          root={root}
+          onClose={() => setSearchOpen(false)}
+          onOpenHit={handleSearchHit}
+        />
+      )}
+
       {settingsOpen && (
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -595,6 +712,66 @@ export default function App() {
                 style={{ width: 90 }}
               />
             </label>
+            <div className="setting-divider">阅读区背景图</div>
+            <label className="setting-row">
+              <span>启用背景图</span>
+              <input
+                type="checkbox"
+                checked={bg.enabled}
+                onChange={(e) => updateBg({ enabled: e.target.checked })}
+              />
+            </label>
+            <div className="setting-row">
+              <span>背景图片</span>
+              <span className="setting-controls">
+                <button className="tool-btn" onClick={() => void pickBgImage()}>
+                  {bgFileName ?? "选择图片"}
+                </button>
+                {bg.path && (
+                  <button className="tool-btn" onClick={() => updateBg({ path: null })}>
+                    清除
+                  </button>
+                )}
+              </span>
+            </div>
+            <label className="setting-row">
+              <span>显示样式</span>
+              <select
+                className="theme-select"
+                value={bg.style}
+                onChange={(e) =>
+                  updateBg({ style: e.target.value as BackgroundConfig["style"] })
+                }
+              >
+                <option value="paper">纸面实色</option>
+                <option value="frosted">半透明毛玻璃</option>
+              </select>
+            </label>
+            <label className="setting-row">
+              <span>模糊度 ({bg.blur}px)</span>
+              <input
+                type="range"
+                min={0}
+                max={40}
+                value={bg.blur}
+                onChange={(e) => updateBg({ blur: Number(e.target.value) })}
+                style={{ width: 150 }}
+              />
+            </label>
+            <label className="setting-row">
+              <span>蒙版浓度 ({bg.overlay}%)</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={bg.overlay}
+                onChange={(e) => updateBg({ overlay: Number(e.target.value) })}
+                style={{ width: 150 }}
+              />
+            </label>
+            <p className="setting-hint">
+              背景图仅作用于阅读区。蒙版颜色随主题自动适配:浅色主题叠白纱、深色主题叠暗纱。
+            </p>
             <p className="setting-hint">
               端口修改后,下次启动预览服务生效。当前主题:{THEME_LABELS[themeName]}
             </p>

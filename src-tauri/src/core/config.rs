@@ -2,6 +2,21 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+/// Reader background image settings; all fields optional so older
+/// config.json files keep loading.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BackgroundConfig {
+    pub enabled: Option<bool>,
+    pub path: Option<String>,
+    /// Blur radius in px (0-40).
+    pub blur: Option<u8>,
+    /// Mask strength in percent (0-100).
+    pub overlay: Option<u8>,
+    /// "paper" (opaque sheet) or "frosted" (translucent blur).
+    pub style: Option<String>,
+}
+
 /// Pure config store: no tauri dependency; callers resolve the file path.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -11,6 +26,7 @@ pub struct Config {
     pub theme: Option<String>,
     pub serve_port: Option<u16>,
     pub autosave: Option<bool>,
+    pub background: Option<BackgroundConfig>,
 }
 
 pub fn load(path: &Path) -> Config {

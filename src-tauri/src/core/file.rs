@@ -47,7 +47,7 @@ fn collect(dir: &Path, depth: u8, dirs: &mut Vec<TreeNode>, files: &mut Vec<Tree
             continue;
         };
         if meta.is_dir() {
-            if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
+            if should_skip_dir(&name) {
                 continue;
             }
             let mut children_dirs = Vec::new();
@@ -74,6 +74,48 @@ fn collect(dir: &Path, depth: u8, dirs: &mut Vec<TreeNode>, files: &mut Vec<Tree
     sub_files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     dirs.append(&mut sub_dirs);
     files.append(&mut sub_files);
+}
+
+/// Dot-dirs and known build/system dirs are excluded from all traversal.
+pub fn should_skip_dir(name: &str) -> bool {
+    name.starts_with('.') || SKIP_DIRS.contains(&name)
+}
+
+/// Flat list of every markdown file under `root`, same traversal rules as
+/// `build_tree` (depth cap, skip list, no symlink following), sorted for
+/// stable result ordering. Used by the workspace search.
+pub fn collect_markdown_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    walk_files(root, 0, &mut files);
+    files.sort_by(|a, b| a.to_string_lossy().to_lowercase().cmp(&b.to_string_lossy().to_lowercase()));
+    files
+}
+
+fn walk_files(dir: &Path, depth: u8, files: &mut Vec<PathBuf>) {
+    if depth >= 16 {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if meta.is_dir() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if should_skip_dir(&name) {
+                continue;
+            }
+            walk_files(&path, depth + 1, files);
+        } else if meta.is_file() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if is_markdown(&name) {
+                files.push(path);
+            }
+        }
+    }
 }
 
 fn is_markdown(name: &str) -> bool {

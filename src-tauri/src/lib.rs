@@ -58,6 +58,13 @@ pub fn run() {
                 .quit()
                 .build()?;
 
+            let mi_search = MenuItem::with_id(
+                handle,
+                "search-dir",
+                "目录内搜索...",
+                true,
+                Some("CmdOrCtrl+Shift+F"),
+            )?;
             let mi_mode_read =
                 MenuItem::with_id(handle, "mode-read", "阅读视图", true, None::<&str>)?;
             let mi_mode_edit =
@@ -70,6 +77,8 @@ pub fn run() {
                 None::<&str>,
             )?;
             let view_menu = SubmenuBuilder::new(handle, "视图")
+                .item(&mi_search)
+                .separator()
                 .item(&mi_mode_read)
                 .item(&mi_mode_edit)
                 .separator()
@@ -137,7 +146,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::pick_folder,
             commands::pick_file,
+            commands::pick_image,
             commands::load_tree,
+            commands::search_docs,
             commands::open_doc,
             commands::render_chunks,
             commands::save_file,

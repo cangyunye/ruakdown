@@ -51,12 +51,24 @@ export interface DocPayload {
   chunked: ChunkedMeta | null;
 }
 
+export interface BackgroundConfig {
+  enabled: boolean | null;
+  path: string | null;
+  /** Blur radius in px (0-40). */
+  blur: number | null;
+  /** Mask strength in percent (0-100). */
+  overlay: number | null;
+  /** "paper" (opaque sheet) or "frosted" (translucent blur). */
+  style: "paper" | "frosted" | null;
+}
+
 export interface AppConfig {
   lastFolder: string | null;
   lastFile: string | null;
   theme: string | null;
   servePort: number | null;
   autosave: boolean | null;
+  background: BackgroundConfig | null;
 }
 
 export interface ThemeInfo {
@@ -76,10 +88,31 @@ export interface SaveResult {
   backup: string | null;
 }
 
+export interface SearchHit {
+  line: number;
+  text: string;
+}
+
+export interface SearchFileResult {
+  path: string;
+  name: string;
+  nameMatch: boolean;
+  hits: SearchHit[];
+}
+
+export interface SearchOutcome {
+  files: SearchFileResult[];
+  totalHits: number;
+  truncated: boolean;
+}
+
 export const api = {
   pickFolder: () => invoke<string | null>("pick_folder"),
   pickFile: () => invoke<string | null>("pick_file"),
+  pickImage: () => invoke<string | null>("pick_image"),
   loadTree: (root: string) => invoke<TreeNode[]>("load_tree", { root }),
+  searchDocs: (root: string, query: string, caseSensitive: boolean) =>
+    invoke<SearchOutcome>("search_docs", { root, query, caseSensitive }),
   openDoc: (path: string) => invoke<DocPayload>("open_doc", { path }),
   renderChunks: (token: number, start: number, count: number) =>
     invoke<ChunkOut[]>("render_chunks", { token, start, count }),
