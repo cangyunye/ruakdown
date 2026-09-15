@@ -104,11 +104,68 @@ body {
 }
 
 .error-bar {
-  padding: 6px 12px;
+  padding: 8px 14px;
   background: rgba(220, 38, 38, 0.12);
   color: #dc2626;
-  border-bottom: 1px solid rgba(220, 38, 38, 0.3);
-  flex: none;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  font-size: 13px;
+}
+
+/* ---------- banner curtain ---------- */
+
+/* All notices live in one fixed overlay above the content (z-index above the
+   settings modal). They slide down over the top of the document like a curtain
+   and never participate in layout, so text never shifts when they appear or
+   disappear. */
+
+.banner-layer {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: min(680px, 92vw);
+  pointer-events: none;
+}
+
+.banner-layer .error-bar,
+.banner-layer .notice-bar {
+  pointer-events: auto;
+  max-width: 100%;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  padding: 8px 14px;
+  animation: banner-drop 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Transient info: slow drop-in, hold 2s, then gently fade out. The JS timer
+   (3.2s) only clears the state after the animation has finished. */
+.banner-layer .notice-bar.info {
+  animation:
+    banner-drop 0.45s cubic-bezier(0.22, 1, 0.36, 1) both,
+    banner-fade 0.6s ease-in 2.45s forwards;
+}
+
+@keyframes banner-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes banner-fade {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
 }
 
 /* ---------- layout ---------- */
@@ -464,14 +521,12 @@ body {
 }
 
 .notice-bar {
-  flex: none;
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 6px 12px;
   background: var(--accent-soft);
   color: var(--text);
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
   font-size: 13px;
 }
 
@@ -954,6 +1009,46 @@ body {
   padding: 10px;
   border-radius: 6px;
   white-space: pre-wrap;
+}
+
+/* ---------- 论道武当: 黑白织染 ---------- */
+
+/* Black/white weave accents layered over the theme vars: a barely-there
+   crossed-thread texture on the reading ground, ink-black table heads with
+   reversed text, and double ink rules on quotes. */
+
+[data-theme="wudang"] .reader-wrap {
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      rgba(0, 0, 0, 0.022) 0 1px,
+      transparent 1px 7px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      rgba(0, 0, 0, 0.018) 0 1px,
+      transparent 1px 7px
+    );
+}
+
+[data-theme="wudang"] .md-body table th {
+  background: #111111;
+  color: #f2f2ee;
+  border-color: #111111;
+}
+
+[data-theme="wudang"] .md-body blockquote {
+  border-left: 3px double #111111;
+}
+
+[data-theme="wudang"] .md-body hr {
+  border: none;
+  height: 3px;
+  background: repeating-linear-gradient(
+    90deg,
+    #111111 0 12px,
+    #f7f7f5 12px 18px
+  );
 }
 
 /* ---------- empty state ---------- */

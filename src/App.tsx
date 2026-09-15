@@ -13,6 +13,8 @@ import {
 } from "./ipc";
 import { applyTheme } from "./theme";
 import { scrollToText } from "./jumpToText";
+import { openMarkdownLink } from "./links";
+import { decideFsChange, type SelfSaveMark } from "./changeDecision";
 import type { ZenController, ZenLevel } from "./zen";
 import { Sidebar, type SidebarTab } from "./components/Sidebar";
 import { Reader } from "./components/Reader";
@@ -188,6 +190,15 @@ export default function App() {
   const editTextRef = useRef("");
   const dirtyRef = useRef(false);
   const autosaveTimer = useRef<number | null>(null);
+  // fs events landing shortly after a save are echoes of our own write
+  // (tmp+rename trips the watcher), never external edits.
+  const selfSaveRef = useRef<SelfSaveMark | null>(null);
+
+  /** Suppress watcher reactions to this file for a window after a save. */
+  const markSelfSave = useCallback((path: string | null) => {
+    if (!path) return;
+    selfSaveRef.current = { path, until: Date.now() + 3000 };
+  }, []);
 
   const persist = useCallback((patch: Partial<AppConfig>) => {
     if (!hydrated.current) return;
@@ -216,6 +227,7 @@ export default function App() {
     }
     try {
       await api.saveFile(s.currentFile, editTextRef.current, d.encoding, d.eol);
+      markSelfSave(s.currentFile);
       dirtyRef.current = false;
       setDirty(false);
       setExternalChange(false);
@@ -223,7 +235,7 @@ export default function App() {
     } catch (err) {
       setError("保存失败: " + String(err));
     }
-  }, []);
+  }, [markSelfSave]);
 
   const scheduleAutosave = useCallback(() => {
     if (!autosaveRef.current) return;
@@ -418,6 +430,22 @@ export default function App() {
     if (url) await openUrl(url);
   }, [serveUrl]);
 
+  // Link navigation inside markdown (preview click / Ctrl+click in source):
+  // web → browser, md → open in app (folder tree untouched), other local
+  // files → system default app.
+  const handleOpenLink = useCallback(
+    (href: string) => {
+      const s = stateRef.current;
+      void openMarkdownLink(href, {
+        currentFile: s.currentFile,
+        root: s.root,
+        openFile,
+        notify: setInfo,
+      });
+    },
+    [openFile],
+  );
+
   // Latest handlers for native menu events.
   const menuRouteRef = useRef<(id: string) => void>(() => {});
   menuRouteRef.current = (id: string) => {
@@ -480,10 +508,11 @@ export default function App() {
     };
   }, []);
 
-  // Clear transient info notices.
+  // Clear transient info notices after the banner animation finishes
+  // (0.45s slide-in + 2s hold + 0.6s fade-out).
   useEffect(() => {
     if (!info) return;
-    const t = window.setTimeout(() => setInfo(null), 5000);
+    const t = window.setTimeout(() => setInfo(null), 3200);
     return () => window.clearTimeout(t);
   }, [info]);
 
@@ -571,10 +600,13 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [fireOnce, toggleZen, toggleFullscreen, switchMode, fullscreenOn, zenOn, searchOpen, settingsOpen]);
 
-  // Restore last session (folder/file/theme) on startup.
+  // Restore last session (folder/file/theme) on startup. A path handed over
+  // by the launching process (double-clicked .md) takes priority over the
+  // stored lastFile; the folder tree still restores as-is.
   useEffect(() => {
     (async () => {
       try {
+        const pending = await api.takePendingOpen();
         const cfg = await api.getConfig();
         const theme = cfg.theme ?? "light";
         setThemeName(theme);
@@ -590,10 +622,9 @@ export default function App() {
           applyBackground(merged);
         }
         if (cfg.zen) setZenCfg(normalizeZen(cfg.zen));
-        if (cfg.lastFolder) {
-          await openFolder(cfg.lastFolder);
-          if (cfg.lastFile) await openFile(cfg.lastFile);
-        }
+        if (cfg.lastFolder) await openFolder(cfg.lastFolder);
+        if (pending) await openFile(pending);
+        else if (cfg.lastFile) await openFile(cfg.lastFile);
       } catch (err) {
         console.error("restore session:", err);
       } finally {
@@ -603,8 +634,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // External filesystem changes: refresh tree; reload the open file unless
-  // there are unsaved edits (then ask via the notice bar).
+  // Files pushed by the backend after launch: a second double-click launch
+  // (single-instance) or macOS Opened event. Taking the pending slot keeps
+  // the startup path from opening the same file twice.
+  const openFileRef = useRef(openFile);
+  openFileRef.current = openFile;
+  useEffect(() => {
+    const unlisten = listen<string>("open-file-arg", async (event) => {
+      const pending = await api.takePendingOpen();
+      const path = event.payload || pending;
+      if (path) void openFileRef.current(path);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // External filesystem changes: refresh the tree, then decide what the
+  // event means for the open file (our own save echoes are suppressed —
+  // see decideFsChange; real changes prompt via the overlay banner when
+  // there are unsaved edits, or reload silently otherwise).
   useEffect(() => {
     const unlisten = listen<{ paths: string[] }>("fs-change", async (event) => {
       const s = stateRef.current;
@@ -615,19 +664,20 @@ export default function App() {
           /* folder may have been removed; keep last tree */
         }
       }
-      const current = s.currentFile;
-      if (
-        !current ||
-        !event.payload.paths.some((p) => p.toLowerCase() === current.toLowerCase())
-      ) {
-        return;
-      }
-      if (s.mode === "edit" && dirtyRef.current) {
-        setExternalChange(true);
+      const decision = decideFsChange({
+        paths: event.payload.paths,
+        currentFile: s.currentFile,
+        mode: s.mode,
+        dirty: dirtyRef.current,
+        selfSave: selfSaveRef.current,
+        now: Date.now(),
+      });
+      if (decision !== "reload") {
+        if (decision === "prompt") setExternalChange(true);
         return;
       }
       try {
-        const d = await api.openDoc(current);
+        const d = await api.openDoc(s.currentFile!);
         setDoc(d);
         editTextRef.current = d.text;
         setExternalChange(false);
@@ -776,8 +826,19 @@ export default function App() {
         </header>
       )}
 
-      {error && <div className="error-bar">{error}</div>}
-      {info && <div className="notice-bar info">{info}</div>}
+      {/* Banner curtain: fixed overlay above everything (z 300). It slides
+          down over the content without ever reflowing it. */}
+      <div className="banner-layer">
+        {error && <div className="error-bar">{error}</div>}
+        {info && <div className="notice-bar info">{info}</div>}
+        {externalChange && (
+          <div className="notice-bar external">
+            <span>文件已被外部修改。</span>
+            <button onClick={reloadCurrent}>重新加载</button>
+            <button onClick={() => setExternalChange(false)}>忽略</button>
+          </div>
+        )}
+      </div>
 
       <div className="main">
         {!fullscreenOn && sidebarVisible && (
@@ -796,13 +857,6 @@ export default function App() {
         <div className="content">
           {doc ? (
             <>
-              {externalChange && (
-                <div className="notice-bar">
-                  <span>文件已被外部修改。</span>
-                  <button onClick={reloadCurrent}>重新加载</button>
-                  <button onClick={() => setExternalChange(false)}>忽略</button>
-                </div>
-              )}
               {mode === "read" ? (
                 <div className="reader-wrap">
                   {doc.chunked ? (
@@ -813,6 +867,7 @@ export default function App() {
                       path={currentFile ?? ""}
                       dark={themeDark}
                       onActiveHeading={setActiveHeading}
+                      onOpenLink={handleOpenLink}
                     />
                   ) : (
                     <Reader
@@ -824,6 +879,7 @@ export default function App() {
                       onZenPos={setZenPos}
                       onZenUnavailable={handleZenUnavailable}
                       onZenController={(ctl) => (zenCtlRef.current = ctl)}
+                      onOpenLink={handleOpenLink}
                     />
                   )}
                 </div>
@@ -836,6 +892,7 @@ export default function App() {
                       text={doc.text}
                       onChange={markDirty}
                       onSave={saveDoc}
+                      onOpenLink={handleOpenLink}
                     />
                   </Suspense>
                 </div>

@@ -5,6 +5,7 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { tags as t } from "@lezer/highlight";
+import { linkAtLine } from "../links";
 
 interface Props {
   /** Document text at mount (component is remounted per file via key). */
@@ -13,6 +14,8 @@ interface Props {
   text: string;
   onChange: (text: string) => void;
   onSave: () => void;
+  /** Ctrl/Cmd+clicked a [text](url) span in the source. */
+  onOpenLink?: (href: string) => void;
 }
 
 const highlightStyle = HighlightStyle.define([
@@ -65,7 +68,7 @@ const editorTheme = EditorView.theme({
   },
 });
 
-export default function SourceEditor({ initialText, text, onChange, onSave }: Props) {
+export default function SourceEditor({ initialText, text, onChange, onSave, onOpenLink }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const lastPushedRef = useRef(initialText);
@@ -73,6 +76,8 @@ export default function SourceEditor({ initialText, text, onChange, onSave }: Pr
   onChangeRef.current = onChange;
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
+  const onOpenLinkRef = useRef(onOpenLink);
+  onOpenLinkRef.current = onOpenLink;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -98,6 +103,22 @@ export default function SourceEditor({ initialText, text, onChange, onSave }: Pr
           indentUnit.of("    "),
           markdown(),
           EditorView.lineWrapping,
+          EditorView.domEventHandlers({
+            mousedown(event, view) {
+              const cb = onOpenLinkRef.current;
+              if (!cb || event.button !== 0 || !(event.metaKey || event.ctrlKey)) {
+                return false;
+              }
+              const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+              if (pos == null) return false;
+              const line = view.state.doc.lineAt(pos);
+              const href = linkAtLine(line.text, pos - line.from);
+              if (!href) return false;
+              event.preventDefault();
+              cb(href);
+              return true;
+            },
+          }),
           syntaxHighlighting(highlightStyle),
           editorTheme,
           EditorView.updateListener.of((update) => {

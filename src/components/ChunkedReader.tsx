@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { api, type ChunkedMeta } from "../ipc";
 import { renderMermaidBlocks } from "../mermaid";
 
@@ -11,6 +11,8 @@ interface Props {
   path: string;
   dark: boolean;
   onActiveHeading: (id: string | null) => void;
+  /** Clicked an <a> inside a mounted chunk. */
+  onOpenLink?: (href: string) => void;
 }
 
 const BACK_CHUNKS = 2;
@@ -41,7 +43,7 @@ interface State {
  * re-anchored whenever a chunk above the viewport changes height.
  */
 const ChunkedReader = forwardRef<ChunkedReaderHandle, Props>(function ChunkedReader(
-  { meta, path, dark, onActiveHeading },
+  { meta, path, dark, onActiveHeading, onOpenLink },
   ref,
 ) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -64,6 +66,20 @@ const ChunkedReader = forwardRef<ChunkedReaderHandle, Props>(function ChunkedRea
   darkRef.current = dark;
   const activeCbRef = useRef(onActiveHeading);
   activeCbRef.current = onActiveHeading;
+  const onOpenLinkRef = useRef(onOpenLink);
+  onOpenLinkRef.current = onOpenLink;
+
+  // Delegated link handling on the scroll container; chunk HTML mounts here
+  // imperatively, so the delegation survives every mount/unmount cycle.
+  const onScrollClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const cb = onOpenLinkRef.current;
+    if (!cb) return;
+    const a = (e.target as HTMLElement).closest("a");
+    if (!a) return;
+    e.preventDefault();
+    const href = a.getAttribute("href");
+    if (href) cb(href);
+  };
 
   function chunkTop(index: number): number {
     let sum = 0;
@@ -317,7 +333,7 @@ const ChunkedReader = forwardRef<ChunkedReaderHandle, Props>(function ChunkedRea
   }, [dark, meta]);
 
   return (
-    <div ref={scrollRef} className="md-body chunked-scroll">
+    <div ref={scrollRef} className="md-body chunked-scroll" onClick={onScrollClick}>
       <div ref={innerRef} />
     </div>
   );

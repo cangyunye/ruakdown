@@ -116,6 +116,13 @@ export interface SearchOutcome {
   truncated: boolean;
 }
 
+export interface ResolvedLink {
+  path: string;
+  exists: boolean;
+  inRoot: boolean;
+  isMarkdown: boolean;
+}
+
 export const api = {
   pickFolder: () => invoke<string | null>("pick_folder"),
   pickFile: () => invoke<string | null>("pick_file"),
@@ -130,6 +137,9 @@ export const api = {
     invoke<SaveResult>("save_file", { path, text, encoding, eol }),
   watchFolder: (root: string) => invoke<void>("watch_folder", { root }),
   stopWatch: () => invoke<void>("stop_watch"),
+  resolveLink: (baseFile: string, link: string, root: string | null) =>
+    invoke<ResolvedLink>("resolve_link", { baseFile, link, root }),
+  takePendingOpen: () => invoke<string | null>("take_pending_open"),
   getConfig: () => invoke<AppConfig>("get_config"),
   saveConfig: (config: AppConfig) => invoke<void>("save_config", { config }),
   listThemes: () => invoke<ThemeInfo[]>("list_themes"),

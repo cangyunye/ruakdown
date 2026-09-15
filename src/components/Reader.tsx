@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import type { DocPayload } from "../ipc";
 import { renderMermaidBlocks } from "../mermaid";
 import {
@@ -19,6 +19,8 @@ interface Props {
   onZenController: (ctl: ZenController | null) => void;
   zenOn: boolean;
   zenLevel: ZenLevel;
+  /** Clicked an <a> inside the rendered body. */
+  onOpenLink?: (href: string) => void;
 }
 
 export function Reader({
@@ -30,6 +32,7 @@ export function Reader({
   onZenController,
   zenOn,
   zenLevel,
+  onOpenLink,
 }: Props) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const onActiveRef = useRef(onActiveHeading);
@@ -40,6 +43,20 @@ export function Reader({
   onZenUnavailableRef.current = onZenUnavailable;
   const onZenControllerRef = useRef(onZenController);
   onZenControllerRef.current = onZenController;
+  const onOpenLinkRef = useRef(onOpenLink);
+  onOpenLinkRef.current = onOpenLink;
+
+  // Delegated link handling: without it, the webview itself would navigate
+  // away on every <a>. Markdown links are routed by the app instead.
+  const onBodyClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const cb = onOpenLinkRef.current;
+    if (!cb) return;
+    const a = (e.target as HTMLElement).closest("a");
+    if (!a) return;
+    e.preventDefault();
+    const href = a.getAttribute("href");
+    if (href) cb(href);
+  };
 
   useEffect(() => {
     const el = bodyRef.current;
@@ -99,6 +116,7 @@ export function Reader({
     <div
       ref={bodyRef}
       className="md-body"
+      onClick={onBodyClick}
       dangerouslySetInnerHTML={{ __html: doc.html ?? "" }}
     />
   );

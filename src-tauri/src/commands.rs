@@ -1,4 +1,4 @@
-use crate::core::{config as config_store, export, file, large_doc, markdown, search, serve, theme, watch};
+use crate::core::{config as config_store, export, file, large_doc, link, markdown, search, serve, theme, watch};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -268,6 +268,19 @@ pub fn watch_folder(
 #[tauri::command]
 pub fn stop_watch(state: State<'_, watch::WatchState>) {
     watch::stop_watch(&state);
+}
+
+/// Resolve a markdown link target against the document's directory.
+#[tauri::command]
+pub fn resolve_link(base_file: String, link: String, root: Option<String>) -> link::ResolvedLink {
+    link::resolve(Path::new(&base_file), &link, root.as_deref().map(Path::new))
+}
+
+/// Consume the file path carried by the launching process (double-click in
+/// Explorer/Finder), if any. Take-on-read so it can only open once.
+#[tauri::command]
+pub fn take_pending_open(state: State<'_, crate::AppState>) -> Option<String> {
+    state.pending_open.lock().unwrap().take()
 }
 
 #[tauri::command]

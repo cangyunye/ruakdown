@@ -9,6 +9,40 @@ mod core;
 pub struct AppState {
     pub current_file: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     pub serve: std::sync::Mutex<Option<core::serve::ServeHandle>>,
+    /// File path requested by the launching process (double-clicked .md),
+    /// consumed by the frontend once the session restore has finished.
+    pub pending_open: std::sync::Mutex<Option<String>>,
+}
+
+/// First argument that points to an existing markdown file — the file the
+/// user double-clicked. Program name and flags (there are none) can never
+/// match because they are not .md files on disk, so scanning all args is
+/// safe whether or not argv[0] is included by the caller.
+pub fn pick_file_arg(args: &[String]) -> Option<String> {
+    args.iter()
+        .find(|arg| {
+            let p = std::path::Path::new(arg);
+            matches!(
+                p.extension()
+                    .map(|e| e.to_string_lossy().to_lowercase())
+                    .as_deref(),
+                Some("md" | "markdown")
+            ) && p.is_file()
+        })
+        .cloned()
+}
+
+/// Store the launch-file path and notify the frontend; keeps the window
+/// focus/unminimize behaviour in one place.
+fn deliver_open_file(app: &tauri::AppHandle, path: Option<String>) {
+    if let Some(window) = app.get_webview_window("main") {
+        if let Some(p) = path {
+            *app.state::<AppState>().pending_open.lock().unwrap() = Some(p.clone());
+            let _ = window.emit("open-file-arg", p);
+        }
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
 }
 
 #[derive(Default)]
@@ -19,13 +53,12 @@ pub struct LargeDocStore {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Second launch (e.g. double-clicking an .md in Explorer): focus the
-            // existing window instead of starting a new process.
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            // existing window instead of starting a new process, and forward the
+            // requested file so it actually opens.
+            let file = pick_file_arg(&args);
+            deliver_open_file(app, file);
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -34,6 +67,9 @@ pub fn run() {
         .manage(AppState {
             current_file: std::sync::Arc::new(std::sync::Mutex::new(None)),
             serve: std::sync::Mutex::new(None),
+            pending_open: std::sync::Mutex::new(pick_file_arg(
+                &std::env::args().collect::<Vec<_>>(),
+            )),
         })
         .manage(LargeDocStore::default())
         .setup(|app| {
@@ -210,6 +246,8 @@ pub fn run() {
             commands::save_file,
             commands::watch_folder,
             commands::stop_watch,
+            commands::resolve_link,
+            commands::take_pending_open,
             commands::get_config,
             commands::save_config,
             commands::list_themes,
@@ -222,6 +260,75 @@ pub fn run() {
             commands::serve_start,
             commands::serve_stop,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // macOS: launched via Finder "Open With" / drag onto the dock icon;
+            // the file arrives through this event instead of argv.
+            if let tauri::RunEvent::Opened { urls, .. } = event {
+                let file = urls
+                    .iter()
+                    .filter_map(|u| u.to_file_path().ok())
+                    .map(|p: std::path::PathBuf| p.to_string_lossy().into_owned())
+                    .find(|p| pick_file_arg(std::slice::from_ref(p)).is_some());
+                deliver_open_file(app, file);
+            }
+        });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_file(dir: &str, name: &str) -> String {
+        let path = std::env::temp_dir().join(format!("ruakdown-arg-{dir}-{name}"));
+        std::fs::write(&path, b"# t").unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn pick_file_arg_ignores_empty_and_non_md_args() {
+        assert_eq!(pick_file_arg(&[]), None);
+        assert_eq!(pick_file_arg(&["/usr/bin/ruakdown".to_string()]), None);
+        assert_eq!(
+            pick_file_arg(&["/usr/bin/ruakdown".to_string(), "--flag".to_string()]),
+            None
+        );
+        assert_eq!(
+            pick_file_arg(&["/usr/bin/ruakdown".to_string(), "notes.txt".to_string()]),
+            None
+        );
+    }
+
+    #[test]
+    fn pick_file_arg_requires_existing_file() {
+        assert_eq!(
+            pick_file_arg(&["ghost.md".to_string()]),
+            None,
+            "non-existent md must be rejected"
+        );
+    }
+
+    #[test]
+    fn pick_file_arg_finds_md_files() {
+        let md = temp_file("md", "doc.md");
+        let markdown = temp_file("md", "doc2.MARKDOWN");
+        assert_eq!(pick_file_arg(&["exe".to_string(), md.clone()]), Some(md));
+        // Program name itself is never a match; uppercase extensions count.
+        assert_eq!(
+            pick_file_arg(&[markdown.clone()]),
+            Some(markdown),
+            "argv[0]-less arg list still resolves"
+        );
+    }
+
+    #[test]
+    fn pick_file_arg_takes_first_match() {
+        let first = temp_file("first", "a.md");
+        let second = temp_file("first", "b.md");
+        assert_eq!(
+            pick_file_arg(&["exe".to_string(), first.clone(), second]),
+            Some(first)
+        );
+    }
 }
