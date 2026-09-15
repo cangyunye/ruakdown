@@ -83,6 +83,19 @@ pub fn run() {
                 true,
                 Some("CmdOrCtrl+Shift+Z"),
             )?;
+            // F11 everywhere; on macOS F11 belongs to the system (Show
+            // Desktop) and fullscreen follows the Ctrl+Cmd+F convention.
+            #[cfg(target_os = "macos")]
+            let fullscreen_accel: Option<&str> = Some("Ctrl+Cmd+F");
+            #[cfg(not(target_os = "macos"))]
+            let fullscreen_accel: Option<&str> = Some("F11");
+            let mi_fullscreen = MenuItem::with_id(
+                handle,
+                "toggle-fullscreen",
+                "全屏模式",
+                true,
+                fullscreen_accel,
+            )?;
             let view_menu = SubmenuBuilder::new(handle, "视图")
                 .item(&mi_search)
                 .separator()
@@ -90,6 +103,7 @@ pub fn run() {
                 .item(&mi_mode_edit)
                 .separator()
                 .item(&mi_zen)
+                .item(&mi_fullscreen)
                 .separator()
                 .item(&mi_sidebar)
                 .build()?;
@@ -203,6 +217,7 @@ pub fn run() {
             commands::pick_export_path,
             commands::export_html,
             commands::set_current_file,
+            commands::set_fullscreen,
             commands::serve_status,
             commands::serve_start,
             commands::serve_stop,

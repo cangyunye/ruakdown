@@ -177,7 +177,7 @@ dunce = "1"
 - **M0–M4 全部里程碑**。工具链 Rust 1.96 / Node 24 / pnpm 10.29;Tauri 2.11.x。
 - 阅读 MVP:文件夹树(notify 8 watch + 400ms 防抖批量事件)、pulldown-cmark 渲染、大纲(锚点注入 + 滚动同步高亮)、Mermaid 12 按需动态 import(暗色主题同步重渲染)、三主题(CSS 变量 + 窗口深浅色标题栏跟随)、会话恢复(上次文件夹/文件/主题/设置)。
 - 编辑:CodeMirror 6 源码模式(懒加载分包)、阅读/源码切换、自动保存(1.5s 防抖,已落盘实测)、Ctrl+S、逐文件保持编码(UTF-8/BOM/UTF-16/GBK)与 CRLF/LF(单测覆盖)、保存前滚动备份(保留 10 份,单测覆盖)、外部修改检测(未保存时提示条)。
-- 输出:导出离线 HTML(同渲染管线 + 内联主题 CSS + 内嵌 mermaid.min.js 5.6MB 资源,CDN 兜底)、axum 0.8 内嵌预览 Serve(`GET /` `GET /api/doc` `GET /static/*` 文档目录图片,CORS 全开,3s 轮询刷新)、原生菜单(文件/视图/主题/服务/帮助,快捷键 Ctrl+Shift+O / Ctrl+O / Ctrl+S / Ctrl+E / Ctrl+Shift+F)。
+- 输出:导出离线 HTML(同渲染管线 + 内联主题 CSS + 内嵌 mermaid.min.js 5.6MB 资源,CDN 兜底)、axum 0.8 内嵌预览 Serve(`GET /` `GET /api/doc` `GET /static/*` 文档目录图片,CORS 全开,3s 轮询刷新)、原生菜单(文件/视图/主题/服务/帮助,快捷键 Ctrl+Shift+O / Ctrl+O / Ctrl+S / Ctrl+E / Ctrl+Shift+F / Ctrl+Shift+Z / F11,macOS 对应 ⌘ 系)。
 - Windows 打磨:单实例(二次启动唤起主窗口,已实测)、`.md`/`.markdown` 文件关联(NSIS,currentUser 安装)、设置弹窗(自动保存开关 + Serve 端口,持久化)。
 - 跨平台打包:`tauri.conf.json` 的 `bundle.targets` 为 `all`,各平台由 `tauri.{windows,macos,linux}.conf.json` 收敛——Windows→NSIS、macOS→app+dmg、Linux→deb;Taskfile `task build` 按平台输出对应安装包路径。
 
@@ -191,6 +191,8 @@ dunce = "1"
 M5(未开始):WYSIWYG(ProseMirror core 手搓)、macOS 适配、文件内查找/替换、PDF 打印、图片 base64 内嵌导出、主题导入导出。
 
 M5 部分提前落地——目录内搜索(2026-09-14 已完成):Rust `core/search.rs` 递归搜索已打开目录下全部 `.md`/`.markdown`(复用 `collect_markdown_files` 的遍历规则与 `read_text` 的编码检测,GBK/UTF-16 可直接匹配),内容按行匹配 + 文件名匹配(文件名命中排前);上限保护(单文件 50 条/总量 2000 条/跳过 >16MB);前端 `SearchModal` 中央模态框,输入防抖 500ms、关键词 ≥2 字符才触发、同一时刻只允许一个目录扫描(输入期间的触发合并为最新一次,结束后补跑)、渲染上限 300 条(状态行仍显示真实计数),结果按文件分组展示命中行片段(关键词 `<mark>` 高亮),Ctrl+Shift+F(视图菜单「目录内搜索」)或标题栏「搜索」按钮打开,↑/↓/Enter/Esc 键盘导航;点击命中项打开文件并滚动定位到首个匹配处(阅读模式 best-effort,分块大文档/源码模式仅打开不定位)。文件内 Ctrl+F 查找仍归 M5。
+
+v0.3.2——快捷键兜底与全屏(2026-09-15 已完成):搜索/专注模式的原生菜单加速键在 Windows 上 WebView2 聚焦时不触发(已知平台行为),全局快捷键改由前端 `window` capture 阶段 keydown 统一兜底:Ctrl/Cmd+Shift+F 搜索、Ctrl/Cmd+Shift+Z 专注、Ctrl+Tab 阅读/源码切换(Cmd+Tab 归操作系统,故两端统一 Ctrl+Tab)、F11 全屏(macOS 兼容 ⌃⌘F)、Esc 逐层退出(搜索/设置 > 专注 > 全屏)。capture 监听先于 CodeMirror 截获按键,顺带避免 Ctrl+Shift+Z 被编辑器当作「重做」,Ctrl+F 仍归编辑器内查找;菜单加速键与 keydown 双路径用 350ms `fireOnce` 去重,防止双触发。全屏为应用级「纯内容」:隐藏标题栏、侧栏、状态栏;Windows/Linux 的原生菜单栏属窗口框架,由自定义命令 `set_fullscreen` 内调 `hide_menu/show_menu` 随全屏显隐(macOS 全屏自动隐藏菜单栏,无需处理);前端不依赖窗口 JS API 查询全屏态,以 React 状态为唯一事实来源,偶发的外部全屏退出会在下一次按键时自然归位。
 
 ## 十二、构建(仓库根目录 `Taskfile.yml`,基于 go-task)
 

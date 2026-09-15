@@ -373,6 +373,23 @@ pub fn set_current_file(state: State<'_, crate::AppState>, path: Option<String>)
     *state.current_file.lock().unwrap() = path;
 }
 
+/// Enter/leave OS fullscreen. On Windows/Linux the native menu bar belongs
+/// to the window frame, so it is hidden while fullscreen; on macOS the menu
+/// bar auto-hides in fullscreen and hide/show_menu are no-ops.
+#[tauri::command]
+pub async fn set_fullscreen(
+    window: tauri::WebviewWindow,
+    fullscreen: bool,
+) -> Result<(), String> {
+    window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
+    if fullscreen {
+        let _ = window.hide_menu();
+    } else {
+        let _ = window.show_menu();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn serve_status(state: State<'_, crate::AppState>) -> Option<String> {
     state.serve.lock().unwrap().as_ref().map(|h| h.url.clone())

@@ -149,6 +149,7 @@ export const api = {
       inlineMermaid,
     }),
   setCurrentFile: (path: string | null) => invoke<void>("set_current_file", { path }),
+  setFullscreen: (fullscreen: boolean) => invoke<void>("set_fullscreen", { fullscreen }),
   serveStatus: () => invoke<string | null>("serve_status"),
   serveStart: (port: number, lan: boolean) =>
     invoke<string>("serve_start", { port, lan }),

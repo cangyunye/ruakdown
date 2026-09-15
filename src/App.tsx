@@ -23,6 +23,10 @@ const SourceEditor = lazy(() => import("./components/SourceEditor"));
 
 type Mode = "read" | "edit";
 
+/** Shortcut label prefix for the current platform (menu chords use
+ * CmdOrCtrl; only the display strings differ). */
+const MOD_KEY = /mac/i.test(navigator.platform) ? "⌘" : "Ctrl";
+
 const THEME_LABELS: Record<string, string> = {
   light: "浅色",
   dark: "暗色",
@@ -136,9 +140,19 @@ export default function App() {
   const [zenOn, setZenOn] = useState(false);
   const [zenCfg, setZenCfg] = useState<ResolvedZen>(DEFAULT_ZEN);
   const [zenPos, setZenPos] = useState<{ idx: number; total: number } | null>(null);
+  const [fullscreenOn, setFullscreenOn] = useState(false);
   const zenPosRef = useRef(zenPos);
   zenPosRef.current = zenPos;
   const zenCtlRef = useRef<ZenController | null>(null);
+  // A chord can fire from both the native menu accelerator and the webview
+  // keydown fallback on some platforms; collapse duplicates.
+  const lastFireRef = useRef<Record<string, number>>({});
+  const fireOnce = useCallback((action: string, fn: () => void) => {
+    const now = Date.now();
+    if (now - (lastFireRef.current[action] ?? 0) < 350) return;
+    lastFireRef.current[action] = now;
+    fn();
+  }, []);
 
   const autosaveRef = useRef(autosaveOn);
   autosaveRef.current = autosaveOn;
@@ -350,6 +364,17 @@ export default function App() {
     setInfo("当前文档没有可用的分节标题(同一层级需至少两个),专注模式未开启");
   }, []);
 
+  const toggleFullscreen = useCallback(async () => {
+    const next = !fullscreenOn;
+    try {
+      await api.setFullscreen(next);
+      setFullscreenOn(next);
+      if (next) setInfo("全屏模式:按 F11 或 Esc 退出");
+    } catch (err) {
+      setError("切换全屏失败: " + String(err));
+    }
+  }, [fullscreenOn]);
+
   const exportHtml = useCallback(async () => {
     const s = stateRef.current;
     if (!s.currentFile || !s.doc) return;
@@ -408,7 +433,7 @@ export default function App() {
         void chooseFile();
         break;
       case "search-dir":
-        setSearchOpen(true);
+        fireOnce("search", () => setSearchOpen(true));
         break;
       case "save":
         void saveDoc();
@@ -423,7 +448,10 @@ export default function App() {
         void switchMode("edit");
         break;
       case "toggle-zen":
-        toggleZen();
+        fireOnce("zen", toggleZen);
+        break;
+      case "toggle-fullscreen":
+        fireOnce("fullscreen", () => void toggleFullscreen());
         break;
       case "toggle-sidebar":
         setSidebarVisible((v) => !v);
@@ -491,6 +519,57 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [zenOn, mode, searchOpen, settingsOpen]);
+
+  // Global shortcuts, handled in the capture phase so they win over the
+  // focused editor (CodeMirror) and stay identical on every platform. This
+  // is the primary path for search/zen on Windows, where native menu
+  // accelerators do not fire while the webview has focus.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+
+      // Search: Ctrl/Cmd+Shift+F.
+      if (mod && e.shiftKey && key === "f") {
+        e.preventDefault();
+        e.stopPropagation();
+        fireOnce("search", () => setSearchOpen(true));
+        return;
+      }
+      // Zen: Ctrl/Cmd+Shift+Z (would otherwise trigger editor redo).
+      if (mod && e.shiftKey && key === "z") {
+        e.preventDefault();
+        e.stopPropagation();
+        fireOnce("zen", toggleZen);
+        return;
+      }
+      // Fullscreen: F11 everywhere; Ctrl+Cmd+F follows the macOS convention.
+      if (e.key === "F11" || (e.metaKey && e.ctrlKey && key === "f")) {
+        e.preventDefault();
+        e.stopPropagation();
+        fireOnce("fullscreen", () => void toggleFullscreen());
+        return;
+      }
+      // Read/source view toggle: Ctrl+Tab (Cmd+Tab belongs to the OS).
+      if (e.ctrlKey && e.key === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        const s = stateRef.current;
+        if (s.doc && !searchOpen && !settingsOpen) {
+          fireOnce("mode", () => void switchMode(s.mode === "read" ? "edit" : "read"));
+        }
+        return;
+      }
+      // Esc exits fullscreen; zen/search/settings consume their own Esc first.
+      if (e.key === "Escape" && fullscreenOn && !zenOn && !searchOpen && !settingsOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        void toggleFullscreen();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, fullscreenOn, zenOn, searchOpen, settingsOpen]);
 
   // Restore last session (folder/file/theme) on startup.
   useEffect(() => {
@@ -625,74 +704,83 @@ export default function App() {
     : (doc?.outline ?? []);
 
   return (
-    <div className="app">
-      <header className="titlebar">
-        <div className="brand">Ruakdown</div>
-        <div className="spacer" />
-        {doc && (
-          <div className="mode-switch">
-            <button
-              className={mode === "read" ? "active" : ""}
-              onClick={() => switchMode("read")}
-            >
-              阅读
-            </button>
-            <button
-              className={mode === "edit" ? "active" : ""}
-              onClick={() => switchMode("edit")}
-            >
-              源码
-            </button>
-          </div>
-        )}
-        <button className="tool-btn" onClick={chooseFolder} title="打开文件夹">
-          打开文件夹
-        </button>
-        <button className="tool-btn" onClick={chooseFile} title="打开文件">
-          打开文件
-        </button>
-        <button
-          className="tool-btn"
-          onClick={() => setSearchOpen(true)}
-          title="目录内搜索 (Ctrl+Shift+F)"
-        >
-          搜索
-        </button>
-        {doc && !doc.chunked && (
-          <button
-            className={`tool-btn${zenOn ? " active" : ""}`}
-            onClick={toggleZen}
-            title="专注模式 (Ctrl+Shift+Z, Esc 退出)"
-          >
-            专注
+    <div className={fullscreenOn ? "app fullscreen" : "app"}>
+      {!fullscreenOn && (
+        <header className="titlebar">
+          <div className="brand">Ruakdown</div>
+          <div className="spacer" />
+          {doc && (
+            <div className="mode-switch">
+              <button
+                className={mode === "read" ? "active" : ""}
+                onClick={() => switchMode("read")}
+              >
+                阅读
+              </button>
+              <button
+                className={mode === "edit" ? "active" : ""}
+                onClick={() => switchMode("edit")}
+              >
+                源码
+              </button>
+            </div>
+          )}
+          <button className="tool-btn" onClick={chooseFolder} title="打开文件夹">
+            打开文件夹
           </button>
-        )}
-        <select
-          className="theme-select"
-          value={themeName}
-          onChange={(e) => changeTheme(e.target.value)}
-          title="切换主题"
-        >
-          {Object.entries(THEME_LABELS).map(([id, label]) => (
-            <option key={id} value={id}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <button
-          className="tool-btn"
-          onClick={() => setSettingsOpen(true)}
-          title="设置"
-        >
-          设置
-        </button>
-      </header>
+          <button className="tool-btn" onClick={chooseFile} title="打开文件">
+            打开文件
+          </button>
+          <button
+            className="tool-btn"
+            onClick={() => setSearchOpen(true)}
+            title={`目录内搜索 (${MOD_KEY}+Shift+F)`}
+          >
+            搜索
+          </button>
+          {doc && !doc.chunked && (
+            <button
+              className={`tool-btn${zenOn ? " active" : ""}`}
+              onClick={toggleZen}
+              title={`专注模式 (${MOD_KEY}+Shift+Z, Esc 退出)`}
+            >
+              专注
+            </button>
+          )}
+          <select
+            className="theme-select"
+            value={themeName}
+            onChange={(e) => changeTheme(e.target.value)}
+            title="切换主题"
+          >
+            {Object.entries(THEME_LABELS).map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <button
+            className="tool-btn"
+            onClick={() => setSettingsOpen(true)}
+            title="设置"
+          >
+            设置
+          </button>
+          <button
+            className="tool-btn"
+            onClick={() => void toggleFullscreen()}
+            title={`全屏模式 (${MOD_KEY === "⌘" ? "⌃⌘F" : "F11"})`}
+          >
+            全屏
+          </button>
+        </header>
+      )}
 
       {error && <div className="error-bar">{error}</div>}
       {info && <div className="notice-bar info">{info}</div>}
 
       <div className="main">
-        {sidebarVisible && (
+        {!fullscreenOn && sidebarVisible && (
           <Sidebar
             tab={tab}
             onTabChange={setTab}
@@ -752,34 +840,36 @@ export default function App() {
                   </Suspense>
                 </div>
               )}
-              <footer className="statusbar">
-                <span className="status-file" title={currentFile ?? ""}>
-                  {currentFile?.split(/[\\/]/).pop()}
-                </span>
-                <span>{mode === "read" ? "阅读视图" : "源码模式"}</span>
-                {zenOn && mode === "read" && zenPos && (
-                  <span>
-                    专注 {zenPos.idx + 1}/{zenPos.total}
+              {!fullscreenOn && (
+                <footer className="statusbar">
+                  <span className="status-file" title={currentFile ?? ""}>
+                    {currentFile?.split(/[\\/]/).pop()}
                   </span>
-                )}
-                <span>{doc.encoding}</span>
-                <span>{doc.eol.toUpperCase()}</span>
-                {dirty && <span className="status-dirty">未保存</span>}
-                <span className="spacer" />
-                {serveUrl && (
-                  <a
-                    className="status-link"
-                    href={serveUrl}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      void openServe();
-                    }}
-                    title="在浏览器打开预览"
-                  >
-                    预览: {serveUrl}
-                  </a>
-                )}
-              </footer>
+                  <span>{mode === "read" ? "阅读视图" : "源码模式"}</span>
+                  {zenOn && mode === "read" && zenPos && (
+                    <span>
+                      专注 {zenPos.idx + 1}/{zenPos.total}
+                    </span>
+                  )}
+                  <span>{doc.encoding}</span>
+                  <span>{doc.eol.toUpperCase()}</span>
+                  {dirty && <span className="status-dirty">未保存</span>}
+                  <span className="spacer" />
+                  {serveUrl && (
+                    <a
+                      className="status-link"
+                      href={serveUrl}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        void openServe();
+                      }}
+                      title="在浏览器打开预览"
+                    >
+                      预览: {serveUrl}
+                    </a>
+                  )}
+                </footer>
+              )}
             </>
           ) : (
             <div className="empty-state">
