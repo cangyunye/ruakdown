@@ -113,6 +113,17 @@ pub fn run() {
                 MenuItem::with_id(handle, "theme-sky", "蓝天白云", true, None::<&str>)?;
             let mi_theme_newsprint =
                 MenuItem::with_id(handle, "theme-newsprint", "陈旧报纸", true, None::<&str>)?;
+            let mi_theme_plum_wine =
+                MenuItem::with_id(handle, "theme-plum-wine", "青梅煮酒", true, None::<&str>)?;
+            let mi_theme_mountain_stream = MenuItem::with_id(
+                handle,
+                "theme-mountain-stream",
+                "高山流水",
+                true,
+                None::<&str>,
+            )?;
+            let mi_theme_wudang =
+                MenuItem::with_id(handle, "theme-wudang", "论道武当", true, None::<&str>)?;
             let theme_menu = SubmenuBuilder::new(handle, "主题")
                 .item(&mi_theme_light)
                 .item(&mi_theme_dark)
@@ -122,6 +133,10 @@ pub fn run() {
                 .item(&mi_theme_verdant)
                 .item(&mi_theme_sky)
                 .item(&mi_theme_newsprint)
+                .separator()
+                .item(&mi_theme_plum_wine)
+                .item(&mi_theme_mountain_stream)
+                .item(&mi_theme_wudang)
                 .build()?;
 
             let mi_serve_local = MenuItem::with_id(

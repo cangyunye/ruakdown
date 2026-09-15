@@ -22,6 +22,9 @@ const SUNSET_COAST: &str = include_str!("../../resources/themes/sunset-coast.jso
 const VERDANT: &str = include_str!("../../resources/themes/verdant.json");
 const SKY: &str = include_str!("../../resources/themes/sky.json");
 const NEWSPRINT: &str = include_str!("../../resources/themes/newsprint.json");
+const PLUM_WINE: &str = include_str!("../../resources/themes/plum-wine.json");
+const MOUNTAIN_STREAM: &str = include_str!("../../resources/themes/mountain-stream.json");
+const WUDANG: &str = include_str!("../../resources/themes/wudang.json");
 
 pub const BUILTIN_IDS: &[&str] = &[
     "light",
@@ -31,6 +34,9 @@ pub const BUILTIN_IDS: &[&str] = &[
     "verdant",
     "sky",
     "newsprint",
+    "plum-wine",
+    "mountain-stream",
+    "wudang",
 ];
 
 pub fn list() -> Vec<ThemeInfo> {
@@ -49,6 +55,9 @@ pub fn get(id: &str) -> Option<Theme> {
         "verdant" => VERDANT,
         "sky" => SKY,
         "newsprint" => NEWSPRINT,
+        "plum-wine" => PLUM_WINE,
+        "mountain-stream" => MOUNTAIN_STREAM,
+        "wudang" => WUDANG,
         _ => return None,
     };
     serde_json::from_str(raw).ok()
@@ -60,12 +69,20 @@ mod tests {
 
     #[test]
     fn builtin_themes_parse() {
-        assert_eq!(list().len(), 7);
+        assert_eq!(list().len(), 10);
         assert!(get("dark").unwrap().dark);
         assert!(!get("light").unwrap().dark);
         assert!(get("dark").unwrap().vars.contains_key("--bg"));
-        // All four scenic additions are light themes.
-        for id in ["sunset-coast", "verdant", "sky", "newsprint"] {
+        // All scenic additions are light themes.
+        for id in [
+            "sunset-coast",
+            "verdant",
+            "sky",
+            "newsprint",
+            "plum-wine",
+            "mountain-stream",
+            "wudang",
+        ] {
             let t = get(id).unwrap_or_else(|| panic!("missing theme: {id}"));
             assert!(!t.dark, "{id} should be a light theme");
             assert!(t.vars.contains_key("--reader-overlay-rgb"));

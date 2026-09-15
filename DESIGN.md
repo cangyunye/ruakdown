@@ -72,7 +72,7 @@ CSS 变量驱动,主题 JSON 由 Rust 管理(打包进 `resources/themes/`):
 }
 ```
 
-流程:Rust 读取主题 → IPC 发送变量 → 前端写入 `:root`,实时切换免刷新;窗口深色标题栏跟随主题(Windows:设置 window theme);Mermaid 主题随明暗同步(`dark` 字段)。内置:浅色 / 暗色 / 石墨 / 夕阳海岸 / 无边绿意 / 蓝天白云 / 陈旧报纸;支持导入导出主题 JSON。
+流程:Rust 读取主题 → IPC 发送变量 → 前端写入 `:root`,实时切换免刷新;窗口深色标题栏跟随主题(Windows:设置 window theme);Mermaid 主题随明暗同步(`dark` 字段)。内置:浅色 / 暗色 / 石墨 / 夕阳海岸 / 无边绿意 / 蓝天白云 / 陈旧报纸 / 青梅煮酒 / 高山流水 / 论道武当;支持导入导出主题 JSON。
 
 ## 五、Rust core 模块
 

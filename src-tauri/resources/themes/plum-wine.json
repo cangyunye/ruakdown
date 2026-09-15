@@ -1,0 +1,24 @@
+{
+  "name": "青梅煮酒",
+  "dark": false,
+  "vars": {
+    "--bg": "#faf7ee",
+    "--panel": "#f1f0e0",
+    "--border": "#d9d8bc",
+    "--text": "#3d4030",
+    "--muted": "#8a8a6d",
+    "--heading": "#5d7a45",
+    "--link": "#a06b2a",
+    "--accent": "#b0702f",
+    "--accent-soft": "rgba(176, 112, 47, 0.12)",
+    "--code-bg": "#f0efe0",
+    "--code-text": "#5a6b2f",
+    "--pre-bg": "#f3f1e2",
+    "--pre-border": "#dcdbc0",
+    "--quote-border": "#8fa05e",
+    "--quote-text": "#8a8a6d",
+    "--table-border": "#d9d8bc",
+    "--mermaid-bg": "#faf7ee",
+    "--reader-overlay-rgb": "250, 247, 238"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "高山流水",
+  "dark": false,
+  "vars": {
+    "--bg": "#f4f8f7",
+    "--panel": "#e6efed",
+    "--border": "#c6d9d5",
+    "--text": "#2d3f3f",
+    "--muted": "#6d8583",
+    "--heading": "#2f5d5a",
+    "--link": "#2f7d80",
+    "--accent": "#368a8c",
+    "--accent-soft": "rgba(54, 138, 140, 0.12)",
+    "--code-bg": "#e7efed",
+    "--code-text": "#1f5f63",
+    "--pre-bg": "#ebf2f0",
+    "--pre-border": "#d0e0dc",
+    "--quote-border": "#7aa8a2",
+    "--quote-text": "#6d8583",
+    "--table-border": "#c6d9d5",
+    "--mermaid-bg": "#f4f8f7",
+    "--reader-overlay-rgb": "244, 248, 247"
+  }
+}

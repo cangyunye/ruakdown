@@ -31,6 +31,9 @@ const THEME_LABELS: Record<string, string> = {
   verdant: "无边绿意",
   sky: "蓝天白云",
   newsprint: "陈旧报纸",
+  "plum-wine": "青梅煮酒",
+  "mountain-stream": "高山流水",
+  wudang: "论道武当",
 };
 
 /** BackgroundConfig with all optional fields resolved to concrete values. */

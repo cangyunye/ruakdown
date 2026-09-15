@@ -1,0 +1,24 @@
+{
+  "name": "论道武当",
+  "dark": false,
+  "vars": {
+    "--bg": "#f3f4f1",
+    "--panel": "#e8eae4",
+    "--border": "#ccd0c6",
+    "--text": "#33383b",
+    "--muted": "#7c8480",
+    "--heading": "#2b3440",
+    "--link": "#a63e32",
+    "--accent": "#a63e32",
+    "--accent-soft": "rgba(166, 62, 50, 0.12)",
+    "--code-bg": "#e9ebe4",
+    "--code-text": "#8a3a2c",
+    "--pre-bg": "#edeef0",
+    "--pre-border": "#d3d6ce",
+    "--quote-border": "#8b948f",
+    "--quote-text": "#7c8480",
+    "--table-border": "#ccd0c6",
+    "--mermaid-bg": "#f3f4f1",
+    "--reader-overlay-rgb": "243, 244, 241"
+  }
+}
