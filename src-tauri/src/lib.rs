@@ -263,8 +263,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // macOS: launched via Finder "Open With" / drag onto the dock icon;
-            // the file arrives through this event instead of argv.
+            // macOS only: launched via Finder "Open With" / drag onto the dock
+            // icon; the file arrives through this event instead of argv.
+            #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls, .. } = event {
                 let file = urls
                     .iter()
@@ -272,6 +273,10 @@ pub fn run() {
                     .map(|p: std::path::PathBuf| p.to_string_lossy().into_owned())
                     .find(|p| pick_file_arg(std::slice::from_ref(p)).is_some());
                 deliver_open_file(app, file);
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = (app, event);
             }
         });
 }
