@@ -8,6 +8,7 @@ import {
 } from "react";
 import { api, type PreviewMeta } from "../ipc";
 import { renderMermaidBlocks } from "../mermaid";
+import { attachImageZoom } from "../imgZoom";
 
 export interface PreviewPaneHandle {
   /** Align the block's top with the viewport top (fetching its chunk first). */
@@ -94,6 +95,11 @@ const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function PreviewPane(
   const onOpenLinkRef = useRef(onOpenLink);
   onOpenLinkRef.current = onOpenLink;
   const docKeyRef = useRef<string | null>(null);
+  // Latest scroll handler for the ResizeObserver (hoisted `onScroll` is
+  // recreated per render with fresh meta in scope).
+  const onScrollRef = useRef<() => void>(() => {});
+  onScrollRef.current = onScroll;
+  const roRef = useRef<ResizeObserver | null>(null);
 
   // Delegated link handling on the scroll container; chunk HTML mounts here
   // imperatively, so the delegation survives every mount/unmount cycle.
@@ -144,6 +150,7 @@ const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function PreviewPane(
     el.classList.remove("placeholder");
     el.style.height = "";
     st.current.loaded[index] = true;
+    roRef.current?.observe(el);
 
     const measured = el.getBoundingClientRect().height;
     const old = st.current.heights[index];
@@ -189,6 +196,7 @@ const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function PreviewPane(
     el.style.height = st.current.heights[index] + "px";
     st.current.loaded[index] = false;
     st.current.biTops[index] = null;
+    roRef.current?.unobserve(el);
   }
 
   function requestChunks(indices: number[]) {
@@ -345,6 +353,46 @@ const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function PreviewPane(
       return topBiAt(sc.scrollTop);
     },
   }));
+
+  // Chunk height self-healing: images/mermaid that resize after mount (remote
+  // images, dimension-probe misses) update heights[] and re-anchor the view —
+  // keeping the sync mapping honest without waiting for a scroll event.
+  // Declared before the meta effect so mountChunk always finds a live observer.
+  useEffect(() => {
+    const ro = new ResizeObserver((entries) => {
+      if (st.current.disposed) return;
+      let changed = false;
+      for (const entry of entries) {
+        const el = entry.target as HTMLElement;
+        const idx = Number(el.dataset.chunk);
+        if (!Number.isFinite(idx)) continue;
+        const measured = el.getBoundingClientRect().height;
+        const old = st.current.heights[idx];
+        if (Math.abs(measured - old) <= 1) continue;
+        st.current.heights[idx] = measured;
+        changed = true;
+        const sc = scrollRef.current;
+        if (sc && idx < firstVisibleIndex(sc.scrollTop)) {
+          sc.scrollTop += measured - old;
+        }
+      }
+      if (changed) onScrollRef.current();
+    });
+    roRef.current = ro;
+    return () => {
+      ro.disconnect();
+      roRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Hover-to-zoom + lightbox; fixed overlays, so the document flow (and the
+  // editor↔preview sync geometry) never moves because of them.
+  useEffect(() => {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    return attachImageZoom(sc);
+  }, []);
 
   useEffect(() => {
     st.current.disposed = false;

@@ -1,6 +1,7 @@
 pub mod config;
 pub mod export;
 pub mod file;
+pub mod imgsize;
 pub mod large_doc;
 pub mod link;
 pub mod markdown;

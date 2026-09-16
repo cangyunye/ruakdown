@@ -141,9 +141,17 @@ pub async fn open_doc(
         let token = hash_path(&path);
         let built = {
             let src = text.clone();
-            tauri::async_runtime::spawn_blocking(move || large_doc::build(&src))
-                .await
-                .map_err(|e| e.to_string())?
+            let base = base_dir.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let mut dims = crate::core::imgsize::DimCache::default();
+                let mut resolver = |src: &str| -> Option<(u32, u32)> {
+                    let p = markdown::resolve_img_path(base.as_deref(), src)?;
+                    dims.get_or_read(p)
+                };
+                large_doc::build_reader(&src, Some(&mut resolver))
+            })
+            .await
+            .map_err(|e| e.to_string())?
         };
         let meta = built.meta(token);
         let mut chunks = built.chunks;

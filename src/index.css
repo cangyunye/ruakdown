@@ -1104,6 +1104,59 @@ html.split-resizing * {
 
 .md-body img {
   max-width: 100%;
+  /* natural width/height attrs (injected by Rust) reserve layout space
+     before the bytes arrive; these two keep the render proportional and
+     bounded so tall screenshots stay within one screen */
+  height: auto;
+  max-height: 60vh;
+  object-fit: contain;
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+
+/* ---------- image zoom (hover layer + lightbox, both out of flow) ---------- */
+
+.img-zoom-hover {
+  position: fixed;
+  z-index: 150;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.img-zoom-hover.on {
+  opacity: 1;
+}
+
+.img-zoom-hover img {
+  display: block;
+  max-width: none;
+  max-height: none;
+}
+
+.img-zoom-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  cursor: zoom-out;
+}
+
+.img-zoom-lightbox.on {
+  display: flex;
+}
+
+.img-zoom-lightbox img {
+  max-width: none;
+  max-height: none;
   border-radius: 6px;
 }
 

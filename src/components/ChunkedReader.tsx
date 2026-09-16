@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { api, type ChunkedMeta } from "../ipc";
 import { renderMermaidBlocks } from "../mermaid";
+import { attachImageZoom } from "../imgZoom";
 
 export interface ChunkedReaderHandle {
   jumpTo: (id: string) => void;
@@ -282,6 +283,14 @@ const ChunkedReader = forwardRef<ChunkedReaderHandle, Props>(function ChunkedRea
       }
     },
   }));
+
+  // Hover-to-zoom + lightbox for downscaled images; fixed overlays, so the
+  // document flow (and scroll anchoring) never moves.
+  useEffect(() => {
+    const sc = scrollRef.current;
+    if (!sc) return;
+    return attachImageZoom(sc);
+  }, []);
 
   useEffect(() => {
     st.current.disposed = false;

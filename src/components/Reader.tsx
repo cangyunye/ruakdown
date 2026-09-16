@@ -1,6 +1,7 @@
 import { useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import type { DocPayload } from "../ipc";
 import { renderMermaidBlocks } from "../mermaid";
+import { attachImageZoom } from "../imgZoom";
 import {
   applyMarkSyntax,
   trackZenFocus,
@@ -63,6 +64,15 @@ export function Reader({
     if (!el) return;
     renderMermaidBlocks(el, dark).catch((err) => console.error("mermaid render:", err));
   }, [doc, dark]);
+
+  // Hover-to-zoom + lightbox for downscaled images; fixed overlays, so the
+  // document flow (and scroll sync) never moves.
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    return attachImageZoom(el);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const el = bodyRef.current;

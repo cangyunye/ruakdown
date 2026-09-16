@@ -299,6 +299,24 @@ fn inject_heading_ids(html: &str, outline: &[OutlineItem]) -> String {
     result
 }
 
+/// Resolve an `<img src>` value against the document directory to a local
+/// file path. Returns `None` for remote/data/anchor references or when no
+/// base directory is known. Shared by the image dimension probe; the asset
+/// rewrite keeps its own loop because it needs the raw value for pass-through.
+pub fn resolve_img_path(base: Option<&std::path::Path>, raw: &str) -> Option<std::path::PathBuf> {
+    use percent_encoding::percent_decode_str;
+    let decoded = percent_decode_str(raw).decode_utf8_lossy();
+    let absolute = ["http://", "https://", "data:", "#", "asset:"]
+        .iter()
+        .any(|p| decoded.to_ascii_lowercase().starts_with(p));
+    if absolute || decoded.is_empty() {
+        return None;
+    }
+    let base = base?;
+    let rel = decoded.replace('\\', "/");
+    Some(base.join(rel.trim_start_matches('/')))
+}
+
 /// Rewrite relative `<img src="...">` references to the Tauri asset protocol so
 /// images next to the markdown file actually load inside the webview.
 /// Absolute URLs (http/https/data/anchors) are left untouched.

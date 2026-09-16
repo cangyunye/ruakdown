@@ -1,9 +1,10 @@
+use crate::core::imgsize::DimCache;
 use crate::core::large_doc::{self, BlockInfo, ChunkInfo, ChunkOutlineItem};
-use crate::core::markdown::rewrite_img_srcs;
+use crate::core::markdown::{resolve_img_path, rewrite_img_srcs};
 use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Meta returned once per preview rebuild; chunk HTML is fetched on demand
 /// via `preview_chunks` keyed by `rev`.
@@ -27,23 +28,35 @@ pub struct PreviewStore {
     text_hash: u64,
     base_file: String,
     doc: Option<large_doc::CachedDoc>,
+    /// Image dimension cache across rebuilds: the same picture is
+    /// header-read once no matter how often the text around it changes.
+    dims: DimCache,
 }
 
 impl PreviewStore {
     /// Rebuild (or reuse) the preview index for the editor buffer. `base_file`
-    /// is the document path, kept for relative-image rewriting at chunk fetch
-    /// time.
+    /// is the document path, kept for relative-image rewriting and dimension
+    /// probing at chunk fetch time.
     pub fn update(&mut self, text: &str, base_file: &str) -> PreviewMeta {
         let hash = text_hash(text);
         if self.doc.is_some() && hash == self.text_hash && base_file == self.base_file {
             return self.meta();
         }
         let prev = self.doc.as_ref().and_then(|d| d.reuse.as_ref());
-        let doc = large_doc::build_reusable(text, prev);
+        let base_dir: Option<PathBuf> = Path::new(base_file).parent().map(Path::to_path_buf);
+        let mut dims = std::mem::take(&mut self.dims);
+        {
+            let mut resolver = |src: &str| -> Option<(u32, u32)> {
+                let path = resolve_img_path(base_dir.as_deref(), src)?;
+                dims.get_or_read(path)
+            };
+            let doc = large_doc::build_reusable(text, prev, Some(&mut resolver));
+            self.doc = Some(doc);
+        }
+        self.dims = dims;
         self.rev = self.rev.wrapping_add(1);
         self.text_hash = hash;
         self.base_file = base_file.to_string();
-        self.doc = Some(doc);
         self.meta()
     }
 

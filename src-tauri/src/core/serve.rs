@@ -229,7 +229,7 @@ body { margin:0; font-family:"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei
 #doc table { border-collapse:collapse; margin:1em 0; width:100%; }
 #doc th,#doc td { border:1px solid var(--table-border); padding:6px 12px; text-align:left; }
 #doc th { background:var(--panel); }
-#doc img { max-width:100%; }
+#doc img { max-width:100%; height:auto; max-height:60vh; object-fit:contain; }
 .mermaid-block { margin:1em 0; padding:12px; background:var(--mermaid-bg);
   border:1px solid var(--border); border-radius:8px; text-align:center; }
 .mermaid-block svg { max-width:100%; }

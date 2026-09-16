@@ -6,6 +6,18 @@ use std::collections::HashMap;
 const TARGET_CHUNK_BYTES: usize = 32 * 1024;
 const MAX_CHUNK_TAGS: u32 = 1500;
 
+/// Layout constants the height estimates assume; the CSS side enforces the
+/// same shape (`max-width:100%`, `max-height:60vh`), so placeholders track
+/// the real render. Both are approximations — mount-time measurement and the
+/// frontend's ResizeObserver converge the rest.
+pub const EST_CONTENT_WIDTH: u32 = 720;
+pub const EST_IMG_CAP: u32 = 480;
+
+/// Probes the natural dimensions of one image by its raw `<img src>` value.
+/// `None` = remote or unresolvable; the block keeps its byte-based estimate
+/// and the frontend's ResizeObserver covers the real height once loaded.
+pub type ImgResolver<'a> = dyn FnMut(&str) -> Option<(u32, u32)> + 'a;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChunkInfo {
@@ -94,6 +106,10 @@ struct RawBlock {
     mermaid: bool,
     kind: BlockKind,
     heading: Option<(u8, String, String, u32)>, // level, text, id, global index
+    /// Estimated display heights of the block's local images (empty when the
+    /// resolver is absent or an image is unresolvable). Cached with the block
+    /// so reused blocks never re-probe the filesystem.
+    img_heights: Vec<u32>,
     src_start: usize,
     src_end: usize,
 }
@@ -139,6 +155,7 @@ fn build_blocks(
     source: &str,
     prev: Option<&BlockReuseMap>,
     fresh: &mut Option<BlockReuseMap>,
+    imgs: &mut Option<&mut ImgResolver>,
 ) -> Vec<RawBlock> {
     let mut blocks: Vec<RawBlock> = Vec::new();
     let mut depth: usize = 0;
@@ -169,6 +186,7 @@ fn build_blocks(
                             &mut heading_counter,
                             prev,
                             fresh,
+                            imgs,
                         ));
                     }
                 } else {
@@ -181,6 +199,7 @@ fn build_blocks(
                         &mut heading_counter,
                         prev,
                         fresh,
+                        imgs,
                     ));
                 }
             }
@@ -195,6 +214,7 @@ fn build_blocks(
                         &mut heading_counter,
                         prev,
                         fresh,
+                        imgs,
                     ));
                 } else {
                     buffer.push(event);
@@ -211,12 +231,16 @@ fn build_blocks(
             &mut heading_counter,
             prev,
             fresh,
+            imgs,
         ));
     }
     blocks
 }
 
 /// Render (or reuse) one top-level block and stamp its source range on it.
+/// Fresh renders also probe image dimensions (annotating `width`/`height`
+/// into the HTML and recording display heights); reused blocks carry both
+/// from the cache, so the resolver is never consulted for them.
 #[allow(clippy::too_many_arguments)]
 fn make_block(
     source: &str,
@@ -226,6 +250,7 @@ fn make_block(
     heading_counter: &mut usize,
     prev: Option<&BlockReuseMap>,
     fresh: &mut Option<BlockReuseMap>,
+    imgs: &mut Option<&mut ImgResolver>,
 ) -> RawBlock {
     let end = end.min(source.len());
     let key = {
@@ -254,6 +279,9 @@ fn make_block(
     let mut block = finish_block(events, heading_counter);
     block.src_start = start;
     block.src_end = end;
+    if let Some(resolver) = imgs.as_deref_mut() {
+        block.img_heights = annotate_imgs(&mut block.html, resolver);
+    }
     if let Some(f) = fresh.as_mut() {
         f.insert(key, block.clone());
     }
@@ -326,6 +354,7 @@ fn finish_block(events: Vec<Event<'_>>, heading_counter: &mut usize) -> RawBlock
         mermaid,
         kind,
         heading,
+        img_heights: Vec::new(),
         src_start: 0,
         src_end: 0,
     }
@@ -345,16 +374,71 @@ fn count_tags(html: &str) -> u32 {
     n
 }
 
-fn est_height(kind: BlockKind, bytes: usize, mermaid: bool) -> u32 {
+fn est_height(kind: BlockKind, bytes: usize, mermaid: bool, img_heights: &[u32]) -> u32 {
     if mermaid {
         return 320;
     }
-    match kind {
+    let base = match kind {
         BlockKind::Heading => 96,
         BlockKind::Code => 60 + (bytes as u32 / 40),
         BlockKind::Table => 48 + (bytes as u32 / 3),
         _ => 36 + (bytes as u32 / 5),
+    };
+    // An image paragraph renders at its display height, not its byte length —
+    // the byte formula would claim ~43px for a 2000px screenshot.
+    let imgs: u32 = img_heights.iter().sum();
+    base.max(imgs + 12)
+}
+
+/// Inject `width`/`height` (natural dimensions) into every local `<img>` so
+/// the browser reserves layout space before the image bytes arrive: mount-time
+/// measurement lands accurately and loading causes zero layout shift.
+/// Returns each image's estimated display height — width clamped to the
+/// reading column, height capped where the CSS side caps — for `est_height`.
+fn annotate_imgs(html: &mut String, resolver: &mut ImgResolver) -> Vec<u32> {
+    let lower = html.to_ascii_lowercase();
+    let mut heights: Vec<u32> = Vec::new();
+    let mut out = String::with_capacity(html.len() + 64);
+    let mut cursor = 0usize;
+    while let Some(off) = lower[cursor..].find("<img") {
+        let img_at = cursor + off;
+        let tag_end = lower[img_at..]
+            .find('>')
+            .map(|p| img_at + p)
+            .unwrap_or(lower.len())
+            .min(html.len());
+        let Some(src_off) = lower[img_at..tag_end].find("src=\"") else {
+            out.push_str(&html[cursor..tag_end]);
+            cursor = tag_end;
+            if cursor >= html.len() {
+                break;
+            }
+            continue;
+        };
+        let val_start = img_at + src_off + "src=\"".len();
+        let val_end = html[val_start..]
+            .find('"')
+            .map(|p| val_start + p)
+            .unwrap_or(tag_end)
+            .min(html.len());
+        if val_end >= html.len() {
+            break; // malformed (unclosed quote at EOF); leave the tail as-is
+        }
+        out.push_str(&html[cursor..val_end + 1]);
+        if let Some((w, h)) = resolver(&html[val_start..val_end]) {
+            out.push_str(&format!(" width=\"{w}\" height=\"{h}\""));
+            let disp_w = w.min(EST_CONTENT_WIDTH).max(1);
+            let disp_h = ((u64::from(h) * u64::from(disp_w)) / u64::from(w)) as u32;
+            heights.push(disp_h.min(EST_IMG_CAP).max(1));
+        }
+        cursor = val_end + 1;
+        if cursor >= html.len() {
+            break;
+        }
     }
+    out.push_str(&html[cursor.min(html.len())..]);
+    *html = out;
+    heights
 }
 
 /// Insert `data-bi="N"` into the first opening tag of a rendered block.
@@ -477,11 +561,17 @@ impl ChunkAcc {
     }
 }
 
-/// Shared build pipeline: split into blocks, convert source ranges to lines,
-/// inject `data-bi` anchors, then pack into chunks.
-fn assemble(source: &str, prev: Option<&BlockReuseMap>, collect_reuse: bool) -> CachedDoc {
+/// Shared build pipeline: split into blocks (dimensions annotated at render
+/// time), convert source ranges to lines, inject `data-bi` anchors, then pack
+/// into chunks.
+fn assemble(
+    source: &str,
+    prev: Option<&BlockReuseMap>,
+    collect_reuse: bool,
+    imgs: &mut Option<&mut ImgResolver>,
+) -> CachedDoc {
     let mut fresh = if collect_reuse { Some(BlockReuseMap::default()) } else { None };
-    let raw_blocks = build_blocks(source, prev, &mut fresh);
+    let raw_blocks = build_blocks(source, prev, &mut fresh, imgs);
     let lines = source_line_ranges(source, &raw_blocks);
 
     let mut chunks: Vec<Chunk> = Vec::new();
@@ -523,10 +613,18 @@ fn assemble(source: &str, prev: Option<&BlockReuseMap>, collect_reuse: bool) -> 
             end_line,
             heading_id: block.heading.as_ref().map(|(_, _, id, _)| id.clone()),
         });
-        let est = est_height(block.kind, block.html.len(), block.mermaid);
-        let mut html = block.html;
+        let RawBlock {
+            mut html,
+            tags,
+            mermaid,
+            kind,
+            heading,
+            img_heights,
+            ..
+        } = block;
+        let est = est_height(kind, html.len(), mermaid, &img_heights);
         inject_data_bi(&mut html, bi);
-        acc.push_block(html, block.tags, est, block.mermaid);
+        acc.push_block(html, tags, est, mermaid);
     }
     acc.flush(
         &mut chunks,
@@ -554,13 +652,27 @@ fn assemble(source: &str, prev: Option<&BlockReuseMap>, collect_reuse: bool) -> 
 /// between top-level blocks; budgets target ~32KB of HTML or ~1500 tags,
 /// whichever hits first (a single oversized block becomes its own chunk).
 pub fn build(source: &str) -> CachedDoc {
-    assemble(source, None, false)
+    assemble(source, None, false, &mut None)
 }
 
-/// Like [`build`], but unchanged blocks are served from `prev` and the
-/// returned doc carries a fresh reuse map for the next preview update.
-pub fn build_reusable(source: &str, prev: Option<&BlockReuseMap>) -> CachedDoc {
-    assemble(source, prev, true)
+/// Like [`build`], but local `<img>` tags get natural `width`/`height`
+/// attributes (probed via `imgs`) and the height estimates account for them.
+/// Used by the chunked reading path.
+pub fn build_reader(source: &str, imgs: Option<&mut ImgResolver>) -> CachedDoc {
+    let mut imgs = imgs;
+    assemble(source, None, false, &mut imgs)
+}
+
+/// Like [`build_reader`], but unchanged blocks are served from `prev` (the
+/// resolver is not consulted for them) and the returned doc carries a fresh
+/// reuse map for the next preview update.
+pub fn build_reusable(
+    source: &str,
+    prev: Option<&BlockReuseMap>,
+    imgs: Option<&mut ImgResolver>,
+) -> CachedDoc {
+    let mut imgs = imgs;
+    assemble(source, prev, true, &mut imgs)
 }
 
 #[cfg(test)]
@@ -682,19 +794,19 @@ mod tests {
     fn reuse_serves_unchanged_blocks_and_keeps_render_equal() {
         let source = TEMPLATE.repeat(50);
 
-        let first = build_reusable(&source, None);
+        let first = build_reusable(&source, None, None);
         assert_eq!(first.reuse.as_ref().unwrap().reused, 0);
         let block_count = first.blocks.len();
 
         // Same text again: every block comes from the cache, output identical.
-        let second = build_reusable(&source, first.reuse.as_ref());
+        let second = build_reusable(&source, first.reuse.as_ref(), None);
         assert_eq!(second.reuse.as_ref().unwrap().reused as usize, block_count);
         assert_eq!(strip_data_bi(&concat_chunks(&first)), strip_data_bi(&concat_chunks(&second)));
 
         // One paragraph edited: everything else is reused, output matches a
         // fresh full render of the modified source.
         let modified = source.replacen("这是一段中文正文", "这是修改后的正文内容", 1);
-        let third = build_reusable(&modified, second.reuse.as_ref());
+        let third = build_reusable(&modified, second.reuse.as_ref(), None);
         assert_eq!(third.reuse.as_ref().unwrap().reused as usize, block_count - 1);
         assert_eq!(
             strip_data_bi(&concat_chunks(&third)),
@@ -703,5 +815,62 @@ mod tests {
         // ids stay unique across the reused/fresh boundary
         let joined = concat_chunks(&third);
         assert_eq!(joined.matches("章节标题-").count(), 50);
+    }
+
+    #[test]
+    fn img_dims_injected_and_est_capped() {
+        let source = "![大图](pic.png)\n\n";
+        let mut calls = 0u32;
+        {
+            let mut resolver = |src: &str| -> Option<(u32, u32)> {
+                calls += 1;
+                (src == "pic.png").then_some((800, 2000))
+            };
+            let doc = build_reader(source, Some(&mut resolver));
+            let joined = concat_chunks(&doc);
+            assert!(
+                joined.contains("src=\"pic.png\" width=\"800\" height=\"2000\""),
+                "natural dimensions must be injected: {joined}"
+            );
+            // display height: w=min(800,720)=720 → h=1800 → capped at 480;
+            // est for the image paragraph = max(36+bytes/5, 480+12) = 492
+            let img_chunk = doc
+                .chunks
+                .iter()
+                .find(|c| c.html.contains("pic.png"))
+                .expect("image chunk exists");
+            assert_eq!(img_chunk.info.est_height, 480 + 12, "capped display height drives est");
+        }
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn img_resolver_skipped_for_reused_blocks() {
+        use std::cell::Cell;
+        let source = "![a](a.png)\n\n![b](b.png)\n\n";
+        let calls = Cell::new(0u32);
+        {
+            let mut resolver = |src: &str| -> Option<(u32, u32)> {
+                calls.set(calls.get() + 1);
+                let _ = src;
+                Some((100, 100))
+            };
+            let first = build_reusable(source, None, Some(&mut resolver));
+            assert_eq!(calls.get(), 2, "one probe per image on the fresh build");
+            let second = build_reusable(source, first.reuse.as_ref(), Some(&mut resolver));
+            assert_eq!(second.reuse.as_ref().unwrap().reused, 2);
+        }
+        assert_eq!(calls.get(), 2, "reused blocks must not re-probe dimensions");
+    }
+
+    #[test]
+    fn unresolvable_img_keeps_byte_estimate_and_no_attrs() {
+        let source = "![外链](https://example.com/a.png)\n\n";
+        let doc = build_reader(source, None);
+        let joined = concat_chunks(&doc);
+        assert!(!joined.contains("width="), "no dims for remote images");
+        // byte-based fallback (~40px for this line), no image height added
+        let chunk = doc.chunks.first().unwrap();
+        assert!(chunk.info.est_height < 100, "est must stay byte-based: {}", chunk.info.est_height);
     }
 }
