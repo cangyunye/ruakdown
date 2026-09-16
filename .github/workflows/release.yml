@@ -1,6 +1,6 @@
 name: Release
 
-# 推送 v* tag 时构建 Windows / macOS 安装包并发布 GitHub Release(草稿)
+# 推送 v* tag 时构建 Windows / macOS 安装包并自动发布 GitHub Release
 # 产物:
 #   windows → Ruakdown_*_x64-setup.exe (NSIS, amd64)
 #   macOS   → Ruakdown_*_aarch64.dmg 与 Ruakdown.app (Apple Silicon)
@@ -65,6 +65,6 @@ jobs:
           tagName: ruakdown-v__VERSION__
           releaseName: 'Ruakdown v__VERSION__'
           releaseBody: '从下方 Assets 下载对应平台的安装包。'
-          # 生成草稿 Release,确认无误后手动 Publish
-          releaseDraft: true
+          # 构建成功即自动正式发布
+          releaseDraft: false
           prerelease: false
