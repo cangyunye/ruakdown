@@ -293,9 +293,10 @@ export default function App() {
 
   /** Debounced rebuild of the split-view preview from the editor buffer.
    * Responses carry a revision; anything that lost the latest-wins race is
-   * dropped on arrival. */
-  const refreshPreview = useCallback((immediate: boolean) => {
-    if (stateRef.current.mode !== "split") return;
+   * dropped on arrival. Call sites that just flipped the mode pass it via
+   * `forMode`: stateRef still holds the previous mode until React re-renders. */
+  const refreshPreview = useCallback((immediate: boolean, forMode?: Mode) => {
+    if ((forMode ?? stateRef.current.mode) !== "split") return;
     if (previewTimer.current != null) {
       window.clearTimeout(previewTimer.current);
       previewTimer.current = null;
@@ -308,8 +309,10 @@ export default function App() {
           stateRef.current.currentFile ?? "",
         );
         if (rev === previewRevRef.current) setPreviewMeta(meta);
-      } catch {
-        /* preview build failures are non-fatal; the next edit retries */
+      } catch (err) {
+        if (rev === previewRevRef.current) {
+          setError("预览渲染失败: " + String(err));
+        }
       }
     };
     if (immediate) {
@@ -508,7 +511,7 @@ export default function App() {
       setMode(next);
       if (next === "split") {
         syncTargetBiRef.current = 0;
-        refreshPreview(true);
+        refreshPreview(true, "split");
       }
     },
     [saveDoc, refreshPreview],
