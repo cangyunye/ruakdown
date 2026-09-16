@@ -4,6 +4,7 @@ pub mod file;
 pub mod large_doc;
 pub mod link;
 pub mod markdown;
+pub mod preview;
 pub mod search;
 pub mod serve;
 pub mod theme;

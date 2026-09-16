@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
@@ -7,6 +7,14 @@ import { markdown } from "@codemirror/lang-markdown";
 import { tags as t } from "@lezer/highlight";
 import { linkAtLine } from "../links";
 
+/** Imperative access for the split view's scroll sync. */
+export interface SourceEditorHandle {
+  /** 1-based line at (or nearest below) the viewport top. */
+  getTopLine: () => number;
+  /** Scroll the given 1-based line to (near) the viewport top. */
+  scrollToLine: (line: number) => void;
+}
+
 interface Props {
   /** Document text at mount (component is remounted per file via key). */
   initialText: string;
@@ -14,6 +22,8 @@ interface Props {
   text: string;
   onChange: (text: string) => void;
   onSave: () => void;
+  /** Scroll events from the editor viewport (raw, passive). */
+  onScroll?: () => void;
   /** Ctrl/Cmd+clicked a [text](url) span in the source. */
   onOpenLink?: (href: string) => void;
 }
@@ -68,7 +78,10 @@ const editorTheme = EditorView.theme({
   },
 });
 
-export default function SourceEditor({ initialText, text, onChange, onSave, onOpenLink }: Props) {
+const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor(
+  { initialText, text, onChange, onSave, onScroll, onOpenLink },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const lastPushedRef = useRef(initialText);
@@ -76,8 +89,35 @@ export default function SourceEditor({ initialText, text, onChange, onSave, onOp
   onChangeRef.current = onChange;
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
+  const onScrollRef = useRef(onScroll);
+  onScrollRef.current = onScroll;
   const onOpenLinkRef = useRef(onOpenLink);
   onOpenLinkRef.current = onOpenLink;
+
+  useImperativeHandle(ref, () => ({
+    getTopLine: () => {
+      const view = viewRef.current;
+      if (!view) return 1;
+      // Sample just inside the top of the scroller; precise=false snaps to
+      // the nearest line when the point lands in padding.
+      const rect = view.scrollDOM.getBoundingClientRect();
+      const pos = view.posAtCoords(
+        { x: rect.left + Math.min(200, rect.width / 2), y: rect.top + 8 },
+        false,
+      );
+      if (pos == null) return 1;
+      return view.state.doc.lineAt(pos).number;
+    },
+    scrollToLine: (line: number) => {
+      const view = viewRef.current;
+      if (!view || view.state.doc.lines === 0) return;
+      const clamped = Math.min(Math.max(1, line), view.state.doc.lines);
+      const l = view.state.doc.line(clamped);
+      view.dispatch({
+        effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 8 }),
+      });
+    },
+  }));
 
   useEffect(() => {
     const container = containerRef.current;
@@ -132,7 +172,10 @@ export default function SourceEditor({ initialText, text, onChange, onSave, onOp
       }),
     });
     viewRef.current = view;
+    const handleScroll = () => onScrollRef.current?.();
+    view.scrollDOM.addEventListener("scroll", handleScroll, { passive: true });
     return () => {
+      view.scrollDOM.removeEventListener("scroll", handleScroll);
       view.destroy();
       viewRef.current = null;
     };
@@ -152,4 +195,6 @@ export default function SourceEditor({ initialText, text, onChange, onSave, onOp
   }, [text]);
 
   return <div ref={containerRef} className="source-editor" />;
-}
+});
+
+export default SourceEditor;

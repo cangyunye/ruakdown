@@ -498,6 +498,92 @@ body {
   padding: 24px;
 }
 
+/* ---------- split view (editor + preview) ---------- */
+
+.split-view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.split-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* the second pane takes whatever the fixed-basis first pane leaves */
+.split-pane-rest {
+  flex: 1;
+}
+
+.split-divider {
+  flex: none;
+  width: 7px;
+  position: relative;
+  cursor: col-resize;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  z-index: 5;
+  transition: background 0.15s ease;
+}
+
+.split-divider:hover {
+  background: var(--accent-soft);
+}
+
+.split-swap {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.split-divider:hover .split-swap,
+.split-swap:focus-visible {
+  opacity: 1;
+}
+
+.split-swap:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* while dragging: keep the resize cursor everywhere and block text selection */
+html.split-resizing,
+html.split-resizing .split-view {
+  cursor: col-resize;
+}
+
+html.split-resizing * {
+  user-select: none;
+}
+
+/* the preview pane is narrower than the reading column: drop the centered
+   max-width and trim the padding so content uses the available width */
+.split-preview {
+  flex: 1;
+}
+
+.split-preview .md-body {
+  max-width: none;
+  padding: 24px 20px 120px;
+}
+
 .mode-switch {
   display: flex;
   border: 1px solid var(--border);

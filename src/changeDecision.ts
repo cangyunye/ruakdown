@@ -1,3 +1,5 @@
+import type { Mode } from "./split";
+
 export type FsChangeDecision = "ignore" | "prompt" | "reload";
 
 /** Marker for a write this app just performed; fs events for the same file
@@ -11,7 +13,7 @@ export interface SelfSaveMark {
 export interface FsChangeInput {
   paths: string[];
   currentFile: string | null;
-  mode: "read" | "edit";
+  mode: Mode;
   dirty: boolean;
   selfSave: SelfSaveMark | null;
   now: number;
@@ -35,6 +37,8 @@ export function decideFsChange(input: FsChangeInput): FsChangeDecision {
   ) {
     return "ignore";
   }
-  if (input.mode === "edit" && input.dirty) return "prompt";
+  // edit and split both carry a live editor buffer that a silent reload
+  // would clobber
+  if (input.mode !== "read" && input.dirty) return "prompt";
   return "reload";
 }

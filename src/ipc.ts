@@ -28,12 +28,33 @@ export interface ChunkOutlineItem {
   text: string;
   id: string;
   chunk: number;
+  /** Global top-level block index (split-view scroll sync). */
+  bi?: number;
 }
 
 export interface ChunkedMeta {
   token: number;
   chunkCount: number;
   chunks: ChunkInfo[];
+  outline: ChunkOutlineItem[];
+}
+
+/** One top-level markdown block: the unit of editor↔preview scroll sync. */
+export interface BlockInfo {
+  bi: number;
+  chunk: number;
+  startLine: number;
+  endLine: number;
+  headingId: string | null;
+}
+
+/** Preview index returned once per rebuild; chunk HTML comes via
+ * previewChunks keyed by `rev`. */
+export interface PreviewMeta {
+  rev: number;
+  chunkCount: number;
+  chunks: ChunkInfo[];
+  blocks: BlockInfo[];
   outline: ChunkOutlineItem[];
 }
 
@@ -71,6 +92,13 @@ export interface ZenConfig {
   emphasis: boolean | null;
 }
 
+export interface SplitConfig {
+  /** Which side the source editor sits on. */
+  editorSide: "left" | "right" | null;
+  /** Editor pane width as a fraction of the split area (0.2-0.8). */
+  ratio: number | null;
+}
+
 export interface AppConfig {
   lastFolder: string | null;
   lastFile: string | null;
@@ -79,6 +107,7 @@ export interface AppConfig {
   autosave: boolean | null;
   background: BackgroundConfig | null;
   zen: ZenConfig | null;
+  split: SplitConfig | null;
 }
 
 export interface ThemeInfo {
@@ -133,6 +162,10 @@ export const api = {
   openDoc: (path: string) => invoke<DocPayload>("open_doc", { path }),
   renderChunks: (token: number, start: number, count: number) =>
     invoke<ChunkOut[]>("render_chunks", { token, start, count }),
+  previewUpdate: (text: string, baseFile: string) =>
+    invoke<PreviewMeta>("preview_update", { text, baseFile }),
+  previewChunks: (rev: number, start: number, count: number) =>
+    invoke<ChunkOut[]>("preview_chunks", { rev, start, count }),
   saveFile: (path: string, text: string, encoding: string, eol: string) =>
     invoke<SaveResult>("save_file", { path, text, encoding, eol }),
   watchFolder: (root: string) => invoke<void>("watch_folder", { root }),

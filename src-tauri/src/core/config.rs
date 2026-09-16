@@ -30,6 +30,17 @@ pub struct ZenConfig {
     pub emphasis: Option<bool>,
 }
 
+/// Split (editor + preview) layout preferences; the on/off state itself is
+/// a view mode, not persisted.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SplitConfig {
+    /// Which side the source editor sits on: "left" or "right".
+    pub editor_side: Option<String>,
+    /// Editor pane width as a fraction of the split area (0.2-0.8).
+    pub ratio: Option<f32>,
+}
+
 /// Pure config store: no tauri dependency; callers resolve the file path.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -41,6 +52,7 @@ pub struct Config {
     pub autosave: Option<bool>,
     pub background: Option<BackgroundConfig>,
     pub zen: Option<ZenConfig>,
+    pub split: Option<SplitConfig>,
 }
 
 pub fn load(path: &Path) -> Config {

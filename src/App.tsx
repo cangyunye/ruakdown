@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -8,6 +8,7 @@ import {
   type AppConfig,
   type BackgroundConfig,
   type DocPayload,
+  type PreviewMeta,
   type TreeNode,
   type ZenConfig,
 } from "./ipc";
@@ -15,15 +16,26 @@ import { applyTheme } from "./theme";
 import { scrollToText } from "./jumpToText";
 import { openMarkdownLink } from "./links";
 import { decideFsChange, type SelfSaveMark } from "./changeDecision";
+import { blockAtLine, headingOwners, lockAllows, SYNC_LOCK_MS, type SyncLock } from "./scrollSync";
+import {
+  flipSide,
+  nextEditorText,
+  nextMode,
+  normalizeRatio,
+  normalizeSide,
+  type EditorSide,
+  type Mode,
+} from "./split";
 import type { ZenController, ZenLevel } from "./zen";
 import { Sidebar, type SidebarTab } from "./components/Sidebar";
 import { Reader } from "./components/Reader";
 import SearchModal from "./components/SearchModal";
 import ChunkedReader, { type ChunkedReaderHandle } from "./components/ChunkedReader";
+import SplitView from "./components/SplitView";
+import PreviewPane, { type PreviewPaneHandle } from "./components/PreviewPane";
+import type { SourceEditorHandle } from "./components/SourceEditor";
 
 const SourceEditor = lazy(() => import("./components/SourceEditor"));
-
-type Mode = "read" | "edit";
 
 /** Shortcut label prefix for the current platform (menu chords use
  * CmdOrCtrl; only the display strings differ). */
@@ -143,9 +155,14 @@ export default function App() {
   const [zenCfg, setZenCfg] = useState<ResolvedZen>(DEFAULT_ZEN);
   const [zenPos, setZenPos] = useState<{ idx: number; total: number } | null>(null);
   const [fullscreenOn, setFullscreenOn] = useState(false);
+  const [editorSide, setEditorSide] = useState<EditorSide>("left");
+  const [splitRatio, setSplitRatio] = useState(0.5);
+  const [previewMeta, setPreviewMeta] = useState<PreviewMeta | null>(null);
   const zenPosRef = useRef(zenPos);
   zenPosRef.current = zenPos;
   const zenCtlRef = useRef<ZenController | null>(null);
+  const previewMetaRef = useRef<PreviewMeta | null>(null);
+  previewMetaRef.current = previewMeta;
   // A chord can fire from both the native menu accelerator and the webview
   // keydown fallback on some platforms; collapse duplicates.
   const lastFireRef = useRef<Record<string, number>>({});
@@ -163,6 +180,16 @@ export default function App() {
 
   const hydrated = useRef(false);
   const chunkedReaderRef = useRef<ChunkedReaderHandle | null>(null);
+  const editorRef = useRef<SourceEditorHandle | null>(null);
+  const previewRef = useRef<PreviewPaneHandle | null>(null);
+  // Scroll-sync state: which side drove the last sync (echo suppression)
+  // and the block that should sit at the preview top (editor is the source
+  // of truth).
+  const syncLockRef = useRef<SyncLock | null>(null);
+  const syncTargetBiRef = useRef(0);
+  const previewTimer = useRef<number | null>(null);
+  const previewRevRef = useRef(0);
+  const editorScrollRaf = useRef<number | null>(null);
   const stateRef = useRef({
     root,
     currentFile,
@@ -174,6 +201,8 @@ export default function App() {
     autosaveOn,
     bg,
     zenCfg,
+    editorSide,
+    splitRatio,
   });
   stateRef.current = {
     root,
@@ -186,6 +215,8 @@ export default function App() {
     autosaveOn,
     bg,
     zenCfg,
+    editorSide,
+    splitRatio,
   };
   const editTextRef = useRef("");
   const dirtyRef = useRef(false);
@@ -212,6 +243,7 @@ export default function App() {
         autosave: autosaveRef.current,
         background: s.bg,
         zen: s.zenCfg,
+        split: { editorSide: s.editorSide, ratio: s.splitRatio },
         ...patch,
       })
       .catch(() => {});
@@ -259,6 +291,101 @@ export default function App() {
     [scheduleAutosave],
   );
 
+  /** Debounced rebuild of the split-view preview from the editor buffer.
+   * Responses carry a revision; anything that lost the latest-wins race is
+   * dropped on arrival. */
+  const refreshPreview = useCallback((immediate: boolean) => {
+    if (stateRef.current.mode !== "split") return;
+    if (previewTimer.current != null) {
+      window.clearTimeout(previewTimer.current);
+      previewTimer.current = null;
+    }
+    const run = async () => {
+      const rev = ++previewRevRef.current;
+      try {
+        const meta = await api.previewUpdate(
+          editTextRef.current,
+          stateRef.current.currentFile ?? "",
+        );
+        if (rev === previewRevRef.current) setPreviewMeta(meta);
+      } catch {
+        /* preview build failures are non-fatal; the next edit retries */
+      }
+    };
+    if (immediate) {
+      void run();
+    } else {
+      previewTimer.current = window.setTimeout(() => void run(), 280);
+    }
+  }, []);
+
+  const handleEditorChange = useCallback(
+    (text: string) => {
+      markDirty(text);
+      refreshPreview(false);
+    },
+    [markDirty, refreshPreview],
+  );
+
+  const headingOwnerMap = useMemo(
+    () => headingOwners(previewMeta?.blocks ?? []),
+    [previewMeta],
+  );
+
+  /** Editor scrolled (or jumped): drive the preview from its viewport top. */
+  const handleEditorScroll = useCallback(() => {
+    if (editorScrollRaf.current != null) return;
+    editorScrollRaf.current = requestAnimationFrame(() => {
+      editorScrollRaf.current = null;
+      const now = Date.now();
+      if (!lockAllows(syncLockRef.current, "editor", now)) return;
+      const ed = editorRef.current;
+      const m = previewMetaRef.current;
+      const pv = previewRef.current;
+      if (!ed || !m || !pv || m.blocks.length === 0) return;
+      const block = blockAtLine(m.blocks, ed.getTopLine());
+      if (!block) return;
+      syncTargetBiRef.current = block.bi;
+      pv.scrollToBlock(block.bi);
+      syncLockRef.current = { source: "editor", until: now + SYNC_LOCK_MS };
+      setActiveHeading(headingOwnerMap[block.bi] ?? null);
+    });
+  }, [headingOwnerMap]);
+
+  /** Preview scrolled to a new top block: update the outline highlight, and
+   * drive the editor back when the user (not our own sync) scrolled it. */
+  const handlePreviewTopBi = useCallback(
+    (bi: number) => {
+      const m = previewMetaRef.current;
+      setActiveHeading(headingOwnerMap[bi] ?? null);
+      const now = Date.now();
+      if (!lockAllows(syncLockRef.current, "preview", now)) return;
+      const line = m?.blocks[bi]?.startLine;
+      if (line == null) return;
+      syncLockRef.current = { source: "preview", until: now + SYNC_LOCK_MS };
+      editorRef.current?.scrollToLine(line);
+    },
+    [headingOwnerMap],
+  );
+
+  const handleSplitResize = useCallback(
+    (ratio: number) => {
+      setSplitRatio(ratio);
+      persist({ split: { editorSide: stateRef.current.editorSide, ratio } });
+    },
+    [persist],
+  );
+
+  const handleSplitSwap = useCallback(() => {
+    const next = flipSide(stateRef.current.editorSide);
+    // The ratio tracks the editor pane; swapping sides mirrors the fraction
+    // so the editor keeps its on-screen width.
+    const nextRatio = 1 - stateRef.current.splitRatio;
+    setEditorSide(next);
+    setSplitRatio(nextRatio);
+    persist({ split: { editorSide: next, ratio: nextRatio } });
+  }, [persist]);
+
   const openFolder = useCallback(
     async (path: string) => {
       try {
@@ -293,12 +420,16 @@ export default function App() {
         setError(null);
         await api.setCurrentFile(path);
         persist({ lastFile: path });
+        if (stateRef.current.mode === "split") {
+          syncTargetBiRef.current = 0;
+          refreshPreview(true);
+        }
       } catch (err) {
         setError("打开文件失败: " + String(err));
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [persist],
+    [persist, refreshPreview],
   );
 
   const chooseFolder = useCallback(async () => {
@@ -318,14 +449,25 @@ export default function App() {
     if (path) await openFile(path);
   }, [openFile]);
 
-  // Open a file from search results, then scroll the rendered view to the
-  // first occurrence of the query. Read mode only; chunked docs (over 1MB)
-  // and the source editor are opened without positioning.
+  // Open a file from search results, then position the view: read mode
+  // scrolls the rendered text to the first match, split mode jumps the
+  // editor to the hit's line; chunked docs (over 1MB) open without
+  // positioning.
   const handleSearchHit = useCallback(
-    async (path: string, query: string) => {
+    async (path: string, query: string, line?: number) => {
       setSearchOpen(false);
       await openFile(path);
-      if (!query || stateRef.current.mode !== "read") return;
+      const mode = stateRef.current.mode;
+      if (mode === "split") {
+        if (line == null) return;
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            editorRef.current?.scrollToLine(line);
+          });
+        });
+        return;
+      }
+      if (!query || mode !== "read") return;
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           scrollToText(document.querySelector(".reader-wrap"), query);
@@ -353,18 +495,27 @@ export default function App() {
   const switchMode = useCallback(
     async (next: Mode) => {
       if (next === stateRef.current.mode) return;
+      const prev = stateRef.current.mode;
       if (next === "read") {
         await saveDoc();
-      } else {
-        editTextRef.current = stateRef.current.doc?.text ?? "";
       }
+      editTextRef.current = nextEditorText(
+        next,
+        prev,
+        editTextRef.current,
+        stateRef.current.doc?.text ?? "",
+      );
       setMode(next);
+      if (next === "split") {
+        syncTargetBiRef.current = 0;
+        refreshPreview(true);
+      }
     },
-    [saveDoc],
+    [saveDoc, refreshPreview],
   );
 
   const toggleZen = useCallback(() => {
-    if (stateRef.current.mode === "edit") {
+    if (stateRef.current.mode === "edit" || stateRef.current.mode === "split") {
       void switchMode("read");
     }
     setZenPos(null);
@@ -471,6 +622,9 @@ export default function App() {
         break;
       case "mode-read":
         void switchMode("read");
+        break;
+      case "mode-split":
+        void switchMode("split");
         break;
       case "mode-edit":
         void switchMode("edit");
@@ -579,13 +733,13 @@ export default function App() {
         fireOnce("fullscreen", () => void toggleFullscreen());
         return;
       }
-      // Read/source view toggle: Ctrl+Tab (Cmd+Tab belongs to the OS).
+      // View mode cycle: Ctrl+Tab (Cmd+Tab belongs to the OS).
       if (e.ctrlKey && e.key === "Tab") {
         e.preventDefault();
         e.stopPropagation();
         const s = stateRef.current;
         if (s.doc && !searchOpen && !settingsOpen) {
-          fireOnce("mode", () => void switchMode(s.mode === "read" ? "edit" : "read"));
+          fireOnce("mode", () => void switchMode(nextMode(s.mode)));
         }
         return;
       }
@@ -622,6 +776,10 @@ export default function App() {
           applyBackground(merged);
         }
         if (cfg.zen) setZenCfg(normalizeZen(cfg.zen));
+        if (cfg.split) {
+          setEditorSide(normalizeSide(cfg.split.editorSide));
+          setSplitRatio(normalizeRatio(cfg.split.ratio));
+        }
         if (cfg.lastFolder) await openFolder(cfg.lastFolder);
         if (pending) await openFile(pending);
         else if (cfg.lastFile) await openFile(cfg.lastFile);
@@ -740,6 +898,15 @@ export default function App() {
 
   const jumpToHeading = useCallback(
     (id: string) => {
+      if (stateRef.current.mode === "split") {
+        // Outline click in split view: jump the editor to the heading's
+        // source line; the preview follows via scroll sync.
+        const m = previewMetaRef.current;
+        const item = m?.outline.find((o) => o.id === id);
+        const line = item?.bi != null ? m?.blocks[item.bi]?.startLine : undefined;
+        if (line != null) editorRef.current?.scrollToLine(line);
+        return;
+      }
       if (stateRef.current.doc?.chunked) {
         chunkedReaderRef.current?.jumpTo(id);
       } else {
@@ -749,9 +916,14 @@ export default function App() {
     [],
   );
 
-  const currentOutline = doc?.chunked
-    ? doc.chunked.outline
-    : (doc?.outline ?? []);
+  // The sidebar outline in split view comes from the live preview build so
+  // it stays aligned with the edited buffer.
+  const currentOutline =
+    mode === "split" && previewMeta
+      ? previewMeta.outline
+      : doc?.chunked
+        ? doc.chunked.outline
+        : (doc?.outline ?? []);
 
   return (
     <div className={fullscreenOn ? "app fullscreen" : "app"}>
@@ -766,6 +938,12 @@ export default function App() {
                 onClick={() => switchMode("read")}
               >
                 阅读
+              </button>
+              <button
+                className={mode === "split" ? "active" : ""}
+                onClick={() => switchMode("split")}
+              >
+                分屏
               </button>
               <button
                 className={mode === "edit" ? "active" : ""}
@@ -883,14 +1061,55 @@ export default function App() {
                     />
                   )}
                 </div>
+              ) : mode === "split" ? (
+                <SplitView
+                  side={editorSide}
+                  ratio={splitRatio}
+                  onResizeEnd={handleSplitResize}
+                  onSwap={handleSplitSwap}
+                  editor={
+                    <div className="editor-wrap">
+                      <Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}>
+                        <SourceEditor
+                          key={currentFile ?? ""}
+                          ref={editorRef}
+                          initialText={editTextRef.current}
+                          text={doc.text}
+                          onChange={handleEditorChange}
+                          onSave={saveDoc}
+                          onScroll={handleEditorScroll}
+                          onOpenLink={handleOpenLink}
+                        />
+                      </Suspense>
+                    </div>
+                  }
+                  preview={
+                    <div className="reader-wrap split-preview">
+                      {previewMeta ? (
+                        <PreviewPane
+                          ref={previewRef}
+                          meta={previewMeta}
+                          docKey={currentFile ?? ""}
+                          dark={themeDark}
+                          syncTargetRef={syncTargetBiRef}
+                          onTopBi={handlePreviewTopBi}
+                          onOpenLink={handleOpenLink}
+                        />
+                      ) : (
+                        <div className="editor-loading">正在渲染预览…</div>
+                      )}
+                    </div>
+                  }
+                />
               ) : (
                 <div className="editor-wrap">
                   <Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}>
                     <SourceEditor
                       key={currentFile ?? ""}
-                      initialText={doc.text}
+                      ref={editorRef}
+                      initialText={editTextRef.current}
                       text={doc.text}
-                      onChange={markDirty}
+                      onChange={handleEditorChange}
                       onSave={saveDoc}
                       onOpenLink={handleOpenLink}
                     />
@@ -902,7 +1121,9 @@ export default function App() {
                   <span className="status-file" title={currentFile ?? ""}>
                     {currentFile?.split(/[\\/]/).pop()}
                   </span>
-                  <span>{mode === "read" ? "阅读视图" : "源码模式"}</span>
+                  <span>
+                    {mode === "read" ? "阅读视图" : mode === "split" ? "分屏模式" : "源码模式"}
+                  </span>
                   {zenOn && mode === "read" && zenPos && (
                     <span>
                       专注 {zenPos.idx + 1}/{zenPos.total}

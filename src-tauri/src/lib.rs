@@ -50,6 +50,13 @@ pub struct LargeDocStore {
     pub docs: std::sync::Mutex<std::collections::HashMap<u32, core::large_doc::CachedDoc>>,
 }
 
+/// Single-slot preview cache behind the split editor+preview view. The
+/// store sits in an Arc so commands can move it into spawn_blocking.
+#[derive(Default)]
+pub struct PreviewState {
+    pub store: std::sync::Arc<std::sync::Mutex<core::preview::PreviewStore>>,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -72,6 +79,7 @@ pub fn run() {
             )),
         })
         .manage(LargeDocStore::default())
+        .manage(PreviewState::default())
         .setup(|app| {
             let handle = app.handle();
 
@@ -103,6 +111,8 @@ pub fn run() {
             )?;
             let mi_mode_read =
                 MenuItem::with_id(handle, "mode-read", "阅读视图", true, None::<&str>)?;
+            let mi_mode_split =
+                MenuItem::with_id(handle, "mode-split", "分屏模式", true, None::<&str>)?;
             let mi_mode_edit =
                 MenuItem::with_id(handle, "mode-edit", "源码模式", true, None::<&str>)?;
             let mi_sidebar = MenuItem::with_id(
@@ -136,6 +146,7 @@ pub fn run() {
                 .item(&mi_search)
                 .separator()
                 .item(&mi_mode_read)
+                .item(&mi_mode_split)
                 .item(&mi_mode_edit)
                 .separator()
                 .item(&mi_zen)
@@ -243,6 +254,8 @@ pub fn run() {
             commands::search_docs,
             commands::open_doc,
             commands::render_chunks,
+            commands::preview_update,
+            commands::preview_chunks,
             commands::save_file,
             commands::watch_folder,
             commands::stop_watch,

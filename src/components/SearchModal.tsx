@@ -4,7 +4,7 @@ import { api, type SearchFileResult, type SearchOutcome } from "../ipc";
 interface SearchModalProps {
   root: string | null;
   onClose: () => void;
-  onOpenHit: (path: string, query: string) => void;
+  onOpenHit: (path: string, query: string, line?: number) => void;
 }
 
 interface FlatHit {
@@ -169,7 +169,7 @@ export default function SearchModal({ root, onClose, onOpenHit }: SearchModalPro
     for (const g of groups) {
       const hit = g.hits.find((h) => h.index === index);
       if (hit) {
-        onOpenHit(hit.file.path, trimmed);
+        onOpenHit(hit.file.path, trimmed, hit.line);
         return;
       }
     }
@@ -252,7 +252,7 @@ export default function SearchModal({ root, onClose, onOpenHit }: SearchModalPro
                     ref={hit.index === selected ? selectedRef : undefined}
                     className={"search-hit" + (hit.index === selected ? " selected" : "")}
                     onMouseEnter={() => setSelected(hit.index)}
-                    onClick={() => onOpenHit(hit.file.path, trimmed)}
+                    onClick={() => onOpenHit(hit.file.path, trimmed, hit.line)}
                   >
                     <span className="search-hit-ln">{hit.line}</span>
                     <span className="search-hit-text">

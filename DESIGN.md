@@ -49,7 +49,7 @@
 
 ## 三、编辑方案(分阶段)
 
-- **M2 源码模式**:CodeMirror 6(按需引入:markdown 语言包 + 基础 setup,模块化可控)。阅读/源码双模式切换(类 Typora 的同一文档双视图,不做左右分屏)。
+- **M2 源码模式**:CodeMirror 6(按需引入:markdown 语言包 + 基础 setup,模块化可控)。阅读/源码双模式切换(类 Typora 的同一文档双视图)。~~不做左右分屏~~ → **v0.4.0 已加入第三种视图「分屏」**(源码 + 实时预览并排,见 §十四)。
 - **M5 WYSIWYG(评估后置)**:手搓 Typora 级 WYSIWYG(表格、任务列表、粘贴、序列化往返)工作量极大,不作为 MVP 内容。届时基于 ProseMirror core(model/view/state/transform/markdown,合计约 150KB gzip,纯库非框架)自建,参考 Milkdown 的 schema 与 markdown 序列化设计;若评估后发现体积/工作量超出预算,源码模式 + 阅读模式已是可用的最终形态。
 
 保存策略:自动保存(防抖)+ 手动保存 + 崩溃备份;**逐文件保持原编码与换行符**(见 §五)。
@@ -226,3 +226,15 @@ v0.3.2——快捷键兜底与全屏(2026-09-15 已完成):搜索/专注模式�
 - Mermaid SVG 按"内容哈希+主题"缓存(40 条 LRU),逐出的块滚回时秒级重挂载。
 - 实测:2MB 文档(1700 单元/3400+ 标题)快速滚动流畅、内存稳定(进程 ~60MB 含 webview 基线)、大纲跨区跳转与滚动高亮正常、小文件路径无回归。
 - 已知限制:浏览器 Ctrl+F 只搜已挂载块(全文搜索走 M5 Rust 搜索);大纲列表本身在超大文档(数千标题)未虚拟化;`CachedDoc` 常驻内存(源文件 + 渲染 HTML 约 2 倍文件体积),超百 MB 文档需再加 Rust 侧 LRU(预留)。
+
+## 十四、v0.4.0 分屏模式(源码编辑 + 实时预览,2026-09-16)
+
+推翻 §三 「不做左右分屏」的旧决策。`Mode = "read" | "edit" | "split"` 三态:标题栏三段按钮(阅读|分屏|源码)、原生菜单 mode-split、**Ctrl+Tab 三态循环**。分屏 = 编辑器 + 实时预览并排,分隔条可拖拽调比例(20%–80%,ref 直改 flexBasis 不触发 React 渲染)、悬停 ⇄ 按钮互换左右、双击恢复 50/50;`editorSide`/`ratio` 持久化到 config.json(`split` 字段,Option+serde default 向后兼容)。edit↔split 互切保留编辑缓冲(`nextEditorText`),split→read 先保存;zen 从分屏进入时先落回阅读;全屏与分屏正交共存。
+
+核心机制:
+
+- **预览统一走分块虚拟化管线**(不分文档大小):复用 `large_doc` 分块算法 + 占位高度 + 按需挂载(前 2/后 3 块随滚动速度自适应、KEEP_MARGIN 驱逐、inflight≤8 合并批量 IPC),>1MB 文档同样流畅;"只从源码可视顶部对齐、能渲染多少渲染多少"由该机制天然满足。
+- **块级 id 序号在 Rust 渲染期同步注入**(无前端异步标定队列):每个顶层块渲染时在首个开标签注入 `data-bi="N"`(全局块序号),并产出 `BlockInfo {bi, chunk, startLine, endLine, headingId}` 块表——预览顶部元素查 `data-bi` 即得源码行,编辑器顶行二分块表即得预览目标,双向同步都是纯查表,无需把渲染 HTML 反解析回源码。滚动同步**以编辑器为准、双向跟随**(用户拖预览时编辑器回写),150ms 同步锁 + 「被驱动侧回声忽略」防回环;块级对齐,不追块内像素。
+- **预览刷新链路**:编辑 onChange → 280ms 防抖 → `preview_update(text, baseFile)`(`core/preview.rs::PreviewStore`,spawn_blocking)→ 返回 `PreviewMeta{rev, chunkCount, chunks[], blocks[], outline[]}`;文本哈希相同零重算,重建时按「(标题计数,块源码文本)哈希」**逐块复用未变块的渲染 HTML**(CommonMark 块上下文独立);chunk HTML 由 `preview_chunks(rev,…)` 按需拉取,**rev 过期直接拒绝**(latest-wins,过期响应丢弃)。meta 应用后预览立即以「编辑器当前视口顶块」重新对齐,上方内容增删不引起预览视觉跳动。
+- **联动**:分屏下侧栏大纲取自 PreviewMeta(带 bi),大纲点击 = 编辑器跳行(预览跟随);目录搜索命中在分屏下跳编辑器行号;`activeHeading` 高亮由编辑器顶行经 `headingOwners` 映射驱动;`decideFsChange` 的 prompt 判定扩展到 split(带活动编辑缓冲)。
+- 前端新增:`components/SplitView.tsx`(拖拽/互换)、`components/PreviewPane.tsx`(虚拟化预览,派生自 ChunkedReader)、`split.ts` + `scrollSync.ts` 纯函数(含 vitest);Rust 新增 `core/preview.rs`、`preview_update`/`preview_chunks` 命令;`data-bi` 仅注入分块构建路径(`large_doc::build*`),阅读小文档与导出 HTML 走的 `render_markdown` 保持零改动。

@@ -1,4 +1,4 @@
-use crate::core::{config as config_store, export, file, large_doc, link, markdown, search, serve, theme, watch};
+use crate::core::{config as config_store, export, file, large_doc, link, markdown, preview, search, serve, theme, watch};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -158,6 +158,8 @@ pub async fn open_doc(
                 source: text.clone(),
                 chunks,
                 outline: built.outline,
+                blocks: built.blocks,
+                reuse: None,
             },
         );
         Ok(DocPayload {
@@ -194,6 +196,42 @@ fn hash_path(path: &str) -> u32 {
 pub struct ChunkOut {
     pub index: u32,
     pub html: String,
+}
+
+/// Rebuild (or reuse) the split-view preview index for the live editor
+/// buffer. Chunking a multi-MB buffer is heavy; keep it off the main thread.
+#[tauri::command]
+pub async fn preview_update(
+    state: State<'_, crate::PreviewState>,
+    text: String,
+    base_file: String,
+) -> Result<preview::PreviewMeta, String> {
+    let store = std::sync::Arc::clone(&state.store);
+    tauri::async_runtime::spawn_blocking(move || {
+        store.lock().unwrap().update(&text, &base_file)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_chunks(
+    state: State<'_, crate::PreviewState>,
+    rev: u64,
+    start: u32,
+    count: u32,
+) -> Result<Vec<ChunkOut>, String> {
+    let store = std::sync::Arc::clone(&state.store);
+    tauri::async_runtime::spawn_blocking(move || {
+        let store = store.lock().unwrap();
+        let chunks = store.chunks(rev, start, count)?;
+        Ok(chunks
+            .into_iter()
+            .map(|(index, html)| ChunkOut { index, html })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
