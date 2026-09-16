@@ -20,6 +20,30 @@
   --table-border: #d1d9e0;
   --mermaid-bg: #ffffff;
   --reader-overlay-rgb: 255, 255, 255;
+  /* Syntax token colors (light); switched with --syn-* below via data-scheme. */
+  --syn-keyword: #cf222e;
+  --syn-string: #0a3069;
+  --syn-comment: #6e7781;
+  --syn-number: #0550ae;
+  --syn-const: #0550ae;
+  --syn-function: #8250df;
+  --syn-type: #953800;
+  --syn-variable: #0550ae;
+  --syn-tag: #116329;
+  --syn-attr: #0550ae;
+}
+
+:root[data-scheme="dark"] {
+  --syn-keyword: #ff7b72;
+  --syn-string: #a5d6ff;
+  --syn-comment: #8b949e;
+  --syn-number: #79c0ff;
+  --syn-const: #79c0ff;
+  --syn-function: #d2a8ff;
+  --syn-type: #ffa657;
+  --syn-variable: #79c0ff;
+  --syn-tag: #7ee787;
+  --syn-attr: #79c0ff;
 }
 
 * {
@@ -1013,6 +1037,39 @@ html.split-resizing * {
   padding: 0;
   border-radius: 0;
   font-size: 0.88em;
+}
+
+/* Syntax token spans emitted by the Rust highlighter (see core/markdown.rs). */
+.md-body pre code .tok-keyword {
+  color: var(--syn-keyword);
+}
+.md-body pre code .tok-string {
+  color: var(--syn-string);
+}
+.md-body pre code .tok-comment {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+.md-body pre code .tok-number {
+  color: var(--syn-number);
+}
+.md-body pre code .tok-const {
+  color: var(--syn-const);
+}
+.md-body pre code .tok-function {
+  color: var(--syn-function);
+}
+.md-body pre code .tok-type {
+  color: var(--syn-type);
+}
+.md-body pre code .tok-variable {
+  color: var(--syn-variable);
+}
+.md-body pre code .tok-tag {
+  color: var(--syn-tag);
+}
+.md-body pre code .tok-attr {
+  color: var(--syn-attr);
 }
 
 .md-body blockquote {

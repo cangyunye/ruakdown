@@ -9,6 +9,7 @@ export async function applyTheme(name: string): Promise<Theme | null> {
       root.style.setProperty(key, value);
     }
     root.dataset.theme = name;
+    root.dataset.scheme = theme.dark ? "dark" : "light";
     root.style.colorScheme = theme.dark ? "dark" : "light";
     return theme;
   } catch (err) {

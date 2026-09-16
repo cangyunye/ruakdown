@@ -24,10 +24,11 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
     };
 
     let title = html_escape(&opts.title);
+    let scheme = if theme.dark { "dark" } else { "light" };
 
     format!(
         r#"<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-scheme="{scheme}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -75,6 +76,7 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
         body = rendered.html,
         mermaid_script = mermaid_script,
         dark = if theme.dark { "1" } else { "0" },
+        scheme = scheme,
     )
 }
 
@@ -112,6 +114,18 @@ body {
   padding: 14px 16px; overflow: auto; line-height: 1.6;
 }
 .md-body pre code { background: transparent; color: var(--text); padding: 0; border-radius: 0; font-size: 0.88em; }
+:root[data-scheme="light"] { --syn-keyword:#cf222e; --syn-string:#0a3069; --syn-comment:#6e7781; --syn-number:#0550ae; --syn-const:#0550ae; --syn-function:#8250df; --syn-type:#953800; --syn-variable:#0550ae; --syn-tag:#116329; --syn-attr:#0550ae; }
+:root[data-scheme="dark"] { --syn-keyword:#ff7b72; --syn-string:#a5d6ff; --syn-comment:#8b949e; --syn-number:#79c0ff; --syn-const:#79c0ff; --syn-function:#d2a8ff; --syn-type:#ffa657; --syn-variable:#79c0ff; --syn-tag:#7ee787; --syn-attr:#79c0ff; }
+.md-body pre code .tok-keyword { color: var(--syn-keyword); }
+.md-body pre code .tok-string { color: var(--syn-string); }
+.md-body pre code .tok-comment { color: var(--syn-comment); font-style: italic; }
+.md-body pre code .tok-number { color: var(--syn-number); }
+.md-body pre code .tok-const { color: var(--syn-const); }
+.md-body pre code .tok-function { color: var(--syn-function); }
+.md-body pre code .tok-type { color: var(--syn-type); }
+.md-body pre code .tok-variable { color: var(--syn-variable); }
+.md-body pre code .tok-tag { color: var(--syn-tag); }
+.md-body pre code .tok-attr { color: var(--syn-attr); }
 .md-body blockquote {
   margin: 1em 0; padding: 0.2em 1em; border-left: 4px solid var(--quote-border);
   color: var(--quote-text); background: var(--panel); border-radius: 0 6px 6px 0;
@@ -144,6 +158,7 @@ mod tests {
             &ExportOptions { theme_id: "dark".into(), title: "t".into() },
         );
         assert!(html.contains("<title>t</title>"));
+        assert!(html.contains("data-scheme=\"dark\""));
         assert!(html.contains("<h1 id="));
         assert!(html.contains("language-mermaid"));
         assert!(html.contains("cdn.jsdelivr.net/npm/mermaid@12"));

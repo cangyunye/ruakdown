@@ -1,4 +1,4 @@
-use crate::core::markdown::{make_heading_id, md_options};
+use crate::core::markdown::{highlight_code_events, make_heading_id, md_options};
 use pulldown_cmark::{html, CodeBlockKind, Event, Parser, Tag, TagEnd};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -301,7 +301,7 @@ fn finish_block(events: Vec<Event<'_>>, heading_counter: &mut usize) -> RawBlock
     }
 
     let mut html = String::with_capacity(events.len() * 24);
-    html::push_html(&mut html, events.into_iter());
+    html::push_html(&mut html, highlight_code_events(events).into_iter());
     let tags = count_tags(&html);
 
     let heading = heading.map(|(level, text)| {
