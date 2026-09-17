@@ -203,31 +203,48 @@ pub fn run() {
             let mi_serve_local = MenuItem::with_id(
                 handle,
                 "serve-local",
-                "启动预览服务 (本机)",
+                "本机预览服务",
                 true,
                 None::<&str>,
             )?;
             let mi_serve_lan = MenuItem::with_id(
                 handle,
                 "serve-lan",
-                "启动预览服务 (局域网, 需防火墙授权)",
+                "局域网分享 (只读, 需防火墙授权)",
+                true,
+                None::<&str>,
+            )?;
+            let mi_serve_lan_follow = MenuItem::with_id(
+                handle,
+                "serve-lan-follow",
+                "局域网分享 (同步浏览)",
+                true,
+                None::<&str>,
+            )?;
+            let mi_serve_lan_edit = MenuItem::with_id(
+                handle,
+                "serve-lan-edit",
+                "局域网分享 (协作编辑)",
                 true,
                 None::<&str>,
             )?;
             let mi_serve_stop =
-                MenuItem::with_id(handle, "serve-stop", "停止预览服务", true, None::<&str>)?;
+                MenuItem::with_id(handle, "serve-stop", "停止分享服务", true, None::<&str>)?;
             let mi_serve_open = MenuItem::with_id(
                 handle,
                 "serve-open",
-                "在浏览器打开预览",
+                "在浏览器打开分享页",
                 true,
                 None::<&str>,
             )?;
             let serve_menu = SubmenuBuilder::new(handle, "服务")
                 .item(&mi_serve_local)
-                .item(&mi_serve_lan)
-                .item(&mi_serve_stop)
                 .separator()
+                .item(&mi_serve_lan)
+                .item(&mi_serve_lan_follow)
+                .item(&mi_serve_lan_edit)
+                .separator()
+                .item(&mi_serve_stop)
                 .item(&mi_serve_open)
                 .build()?;
 
@@ -272,6 +289,10 @@ pub fn run() {
             commands::serve_status,
             commands::serve_start,
             commands::serve_stop,
+            commands::serve_notify_change,
+            commands::serve_broadcast_scroll,
+            commands::serve_notice,
+            commands::serve_set_dirty,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

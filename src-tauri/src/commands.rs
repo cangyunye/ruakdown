@@ -2,7 +2,7 @@ use crate::core::{config as config_store, export, file, large_doc, link, markdow
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -425,7 +425,20 @@ pub async fn export_html(
     .map_err(|e| e.to_string())?
 }
 
-// ---------- preview server ----------
+// ---------- share server ----------
+
+/// Production event sink: forwards remote-viewer messages to the frontend
+/// as Tauri events.
+struct AppSink(AppHandle);
+
+impl serve::RemoteEventSink for AppSink {
+    fn emit_scroll(&self, value: serde_json::Value) {
+        let _ = self.0.emit("serve-remote-scroll", value);
+    }
+    fn emit_edit(&self, value: serde_json::Value) {
+        let _ = self.0.emit("serve-remote-edit", value);
+    }
+}
 
 #[tauri::command]
 pub fn set_current_file(state: State<'_, crate::AppState>, path: Option<String>) {
@@ -454,29 +467,99 @@ pub fn serve_status(state: State<'_, crate::AppState>) -> Option<String> {
     state.serve.lock().unwrap().as_ref().map(|h| h.url.clone())
 }
 
+/// (Re)start the share server with the given permission set. Restarting on
+/// every call keeps mode switches (read → follow → edit) trivial and removes
+/// the check-then-act race of the previous implementation. The URL carries a
+/// per-start token; LAN mode advertises the machine's LAN address.
 #[tauri::command]
 pub async fn serve_start(
+    app: AppHandle,
     state: State<'_, crate::AppState>,
     port: u16,
     lan: bool,
+    follow: bool,
+    edit: bool,
 ) -> Result<String, String> {
-    {
-        let guard = state.serve.lock().unwrap();
-        if let Some(h) = guard.as_ref() {
-            return Ok(h.url.clone());
-        }
-    }
-    let host = if lan { "0.0.0.0" } else { "127.0.0.1" };
-    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    serve::stop(state.serve.lock().unwrap().take());
+    let token = serve::gen_token();
+    let mermaid = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|d| d.join("resources/mermaid.min.js"))
+        .filter(|p| p.is_file());
+    let (tx, _) = tokio::sync::broadcast::channel(128);
     let shared = Arc::new(serve::Shared {
         current_file: state.current_file.clone(),
+        token: token.clone(),
+        can_follow: follow,
+        can_edit: edit,
+        mermaid_js: mermaid,
+        tx,
+        dirty: std::sync::atomic::AtomicBool::new(false),
+        sink: Arc::new(AppSink(app)),
+        cache: std::sync::Mutex::new(None),
     });
-    let url = serve::start(shared, host.to_string(), port, shutdown_rx).await?;
-    *state.serve.lock().unwrap() = Some(serve::ServeHandle::new(url.clone(), shutdown_tx));
+    let host = if lan { "0.0.0.0" } else { "127.0.0.1" };
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let bound = serve::start(shared.clone(), host.to_string(), port, shutdown_rx).await?;
+    let url = serve::display_url(lan, bound, &token);
+    *state.serve.lock().unwrap() = Some(serve::ServeHandle::new(url.clone(), shared, shutdown_tx));
     Ok(url)
 }
 
 #[tauri::command]
 pub fn serve_stop(state: State<'_, crate::AppState>) {
     serve::stop(state.serve.lock().unwrap().take());
+}
+
+/// Tell all viewers the shared content changed (after a save or an applied
+/// remote edit). No-op when the server is not running.
+#[tauri::command]
+pub fn serve_notify_change(state: State<'_, crate::AppState>) {
+    if let Some(h) = state.serve.lock().unwrap().as_ref() {
+        let _ = h.shared.tx.send(r#"{"type":"changed"}"#.to_string());
+    }
+}
+
+/// Broadcast the local reading position to every viewer (scroll sync).
+#[tauri::command]
+pub fn serve_broadcast_scroll(
+    state: State<'_, crate::AppState>,
+    line: Option<u32>,
+    heading: Option<String>,
+    frac: Option<f64>,
+) {
+    if let Some(h) = state.serve.lock().unwrap().as_ref() {
+        let msg = serde_json::json!({
+            "type": "scroll",
+            "line": line,
+            "heading": heading,
+            "frac": frac,
+        })
+        .to_string();
+        let _ = h.shared.tx.send(msg);
+    }
+}
+
+/// A viewer-visible notice (e.g. a rejected remote edit).
+#[tauri::command]
+pub fn serve_notice(state: State<'_, crate::AppState>, text: String) {
+    if let Some(h) = state.serve.lock().unwrap().as_ref() {
+        let msg = serde_json::json!({ "type": "notice", "text": text }).to_string();
+        let _ = h.shared.tx.send(msg);
+    }
+}
+
+/// Mirror the local dirty flag into the server: late-joining viewers see it
+/// in /api/doc, connected ones via the broadcast below.
+#[tauri::command]
+pub fn serve_set_dirty(state: State<'_, crate::AppState>, dirty: bool) {
+    let handle = state.serve.lock().unwrap();
+    let Some(h) = handle.as_ref() else {
+        return;
+    };
+    h.shared.dirty.store(dirty, std::sync::atomic::Ordering::Relaxed);
+    let msg = serde_json::json!({ "type": "dirty", "value": dirty }).to_string();
+    let _ = h.shared.tx.send(msg);
 }

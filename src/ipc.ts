@@ -194,9 +194,20 @@ export const api = {
   setCurrentFile: (path: string | null) => invoke<void>("set_current_file", { path }),
   setFullscreen: (fullscreen: boolean) => invoke<void>("set_fullscreen", { fullscreen }),
   serveStatus: () => invoke<string | null>("serve_status"),
-  serveStart: (port: number, lan: boolean) =>
-    invoke<string>("serve_start", { port, lan }),
+  serveStart: (port: number, lan: boolean, follow: boolean, edit: boolean) =>
+    invoke<string>("serve_start", { port, lan, follow, edit }),
   serveStop: () => invoke<void>("serve_stop"),
+  /** Tell viewers the shared content changed (call after saving). */
+  serveNotifyChange: () => invoke<void>("serve_notify_change"),
+  /** Broadcast the local reading position to viewers (scroll sync). */
+  serveBroadcastScroll: (
+    line: number | null,
+    heading: string | null,
+    frac: number | null,
+  ) => invoke<void>("serve_broadcast_scroll", { line, heading, frac }),
+  /** Viewer-visible notice, e.g. a rejected remote edit. */
+  serveNotice: (text: string) => invoke<void>("serve_notice", { text }),
+  serveSetDirty: (dirty: boolean) => invoke<void>("serve_set_dirty", { dirty }),
 };
 
 export const SERVE_PORT = 17630;

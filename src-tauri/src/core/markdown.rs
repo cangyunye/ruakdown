@@ -321,8 +321,6 @@ pub fn resolve_img_path(base: Option<&std::path::Path>, raw: &str) -> Option<std
 /// images next to the markdown file actually load inside the webview.
 /// Absolute URLs (http/https/data/anchors) are left untouched.
 pub fn rewrite_img_srcs(html: &str, base: Option<&std::path::Path>) -> String {
-    use percent_encoding::percent_decode_str;
-
     const ASSET_SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
         .remove(b'-')
         .remove(b'_')
@@ -334,9 +332,56 @@ pub fn rewrite_img_srcs(html: &str, base: Option<&std::path::Path>) -> String {
         .remove(b'(')
         .remove(b')');
 
-    let Some(base) = base else {
+    rewrite_img_srcs_with(html, base, |decoded| {
+        let rel = decoded.replace('\\', "/");
+        let full = base
+            .map(|b| b.join(rel.trim_start_matches('/')))
+            .unwrap_or_default();
+        let full = dunce::simplified(&full).to_string_lossy();
+        let enc = percent_encoding::utf8_percent_encode(&full, ASSET_SET);
+        if cfg!(windows) {
+            format!("http://asset.localhost/{enc}")
+        } else {
+            format!("asset://localhost/{enc}")
+        }
+    })
+}
+
+/// Rewrite relative `<img src="...">` references to `/static/<encoded rel>` so
+/// images resolve against the share server's static route (which serves the
+/// document directory). Absolute URLs pass through untouched.
+pub fn rewrite_img_srcs_http(html: &str, base: Option<&std::path::Path>) -> String {
+    // '/' stays unencoded so the path keeps its segment structure; the
+    // static handler decodes it and splits on '/' again.
+    const HTTP_SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+        .remove(b'/')
+        .remove(b'-')
+        .remove(b'_')
+        .remove(b'.')
+        .remove(b'~');
+
+    rewrite_img_srcs_with(html, base, |decoded| {
+        let rel = decoded.replace('\\', "/");
+        // Strip leading `./` segments (in-document relative markers); a
+        // leading `../` is kept and rejected by the static handler (403).
+        let rel = rel.trim_start_matches("./").trim_start_matches('/');
+        let enc = percent_encoding::utf8_percent_encode(rel, HTTP_SET);
+        format!("/static/{enc}")
+    })
+}
+
+/// Shared `<img src="...">` scanning loop. `make` receives the decoded
+/// attribute value of a *relative* reference and returns the replacement;
+/// absolute URLs (http/https/data/anchors) and empty values pass through
+/// untouched.
+fn rewrite_img_srcs_with<F>(html: &str, base: Option<&std::path::Path>, make: F) -> String
+where
+    F: Fn(&str) -> String,
+{
+    use percent_encoding::percent_decode_str;
+    if base.is_none() {
         return html.to_string();
-    };
+    }
     let lower = html.to_ascii_lowercase();
     let mut out = String::with_capacity(html.len() + 128);
     let mut cursor = 0usize;
@@ -372,15 +417,7 @@ pub fn rewrite_img_srcs(html: &str, base: Option<&std::path::Path>) -> String {
                 if absolute || decoded.is_empty() {
                     out.push_str(raw);
                 } else {
-                    let rel = decoded.replace('\\', "/");
-                    let full = base.join(rel.trim_start_matches('/'));
-                    let full = dunce::simplified(&full).to_string_lossy();
-                    let enc = percent_encoding::utf8_percent_encode(&full, ASSET_SET);
-                    if cfg!(windows) {
-                        out.push_str(&format!("http://asset.localhost/{enc}"));
-                    } else {
-                        out.push_str(&format!("asset://localhost/{enc}"));
-                    }
+                    out.push_str(&make(&decoded));
                 }
                 out.push('"');
                 cursor = val_end + 1;
@@ -422,6 +459,27 @@ mod tests {
         assert!(doc.html.contains("tok-keyword"), "{}", doc.html);
         assert!(doc.html.contains("tok-number"), "{}", doc.html);
         assert!(!doc.html.contains("<span style"), "{}", doc.html);
+    }
+
+    #[test]
+    fn share_rewrite_maps_relative_imgs_to_static() {
+        // Angle-bracket destination: spaces are only valid inside <> in CommonMark.
+        let doc = render_markdown("![本地](<./imgs/pic 一.png>)\n\n![远程](https://x/y.png)");
+        let out = rewrite_img_srcs_http(&doc.html, Some(std::path::Path::new("/tmp/d")));
+        assert!(
+            out.contains("src=\"/static/imgs/pic%20%E4%B8%80.png\""),
+            "{}",
+            out
+        );
+        assert!(out.contains("https://x/y.png"));
+        assert!(!out.contains("asset"), "{}", out);
+    }
+
+    #[test]
+    fn share_rewrite_passthrough_without_base() {
+        let doc = render_markdown("![本地](./pic.png)");
+        let out = rewrite_img_srcs_http(&doc.html, None);
+        assert!(out.contains("src=\"./pic.png\""), "{}", out);
     }
 
     #[test]

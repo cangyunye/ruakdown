@@ -41,6 +41,26 @@ const SourceEditor = lazy(() => import("./components/SourceEditor"));
  * CmdOrCtrl; only the display strings differ). */
 const MOD_KEY = /mac/i.test(navigator.platform) ? "⌘" : "Ctrl";
 
+/** Clipboard write with an execCommand fallback for non-secure contexts. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 const THEME_LABELS: Record<string, string> = {
   light: "浅色",
   dark: "暗色",
@@ -145,6 +165,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [serveUrl, setServeUrl] = useState<string | null>(null);
+  const [servePerms, setServePerms] = useState<{ follow: boolean; edit: boolean } | null>(null);
+  const [followRemote, setFollowRemote] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -177,6 +199,17 @@ export default function App() {
   autosaveRef.current = autosaveOn;
   const servePortRef = useRef(servePort);
   servePortRef.current = servePort;
+  // Share-session mirrors for listeners and scroll handlers that must read
+  // the latest values without re-subscribing.
+  const followRemoteRef = useRef(false);
+  followRemoteRef.current = followRemote;
+  const servePermsRef = useRef(servePerms);
+  servePermsRef.current = servePerms;
+  const activeHeadingRef = useRef<string | null>(null);
+  activeHeadingRef.current = activeHeading;
+  // Timestamp guard: after applying a remote scroll we briefly stop
+  // re-broadcasting our own position, so follower loops damp out.
+  const remoteGuardRef = useRef(0);
 
   const hydrated = useRef(false);
   const chunkedReaderRef = useRef<ChunkedReaderHandle | null>(null);
@@ -264,6 +297,8 @@ export default function App() {
       setDirty(false);
       setExternalChange(false);
       setDoc((prev) => (prev ? { ...prev, text: editTextRef.current } : prev));
+      // Live-reload for share viewers (no-op when the server is off).
+      void api.serveNotifyChange().catch(() => {});
     } catch (err) {
       setError("保存失败: " + String(err));
     }
@@ -361,6 +396,21 @@ export default function App() {
     (bi: number) => {
       const m = previewMetaRef.current;
       setActiveHeading(headingOwnerMap[bi] ?? null);
+      // Share viewers follow the preview position while serving in
+      // follow/edit mode; paused briefly after a remote-driven scroll.
+      if (
+        stateRef.current.serveUrl &&
+        servePermsRef.current?.follow &&
+        Date.now() >= remoteGuardRef.current
+      ) {
+        void api
+          .serveBroadcastScroll(
+            m?.blocks[bi]?.startLine ?? null,
+            headingOwnerMap[bi] ?? null,
+            null,
+          )
+          .catch(() => {});
+      }
       const now = Date.now();
       if (!lockAllows(syncLockRef.current, "preview", now)) return;
       const line = m?.blocks[bi]?.startLine;
@@ -369,6 +419,36 @@ export default function App() {
       editorRef.current?.scrollToLine(line);
     },
     [headingOwnerMap],
+  );
+
+  /** Remote viewer scrolled (share sync): move the local view. Split mode
+   * follows by source line (the editor drives the preview); read mode
+   * prefers the heading anchor, falling back to a viewport fraction. */
+  const applyRemoteScroll = useCallback(
+    (p: { line?: number | null; heading?: string | null; frac?: number | null }) => {
+      const s = stateRef.current;
+      remoteGuardRef.current = Date.now() + 700;
+      if (s.mode === "split") {
+        if (p.line != null) editorRef.current?.scrollToLine(p.line);
+        return;
+      }
+      if (p.heading) {
+        if (s.doc?.chunked) chunkedReaderRef.current?.jumpTo(p.heading);
+        else document.getElementById(p.heading)?.scrollIntoView({ block: "start" });
+        return;
+      }
+      if (p.frac != null) {
+        const wrap = document.querySelector(".reader-wrap");
+        const sc =
+          (wrap?.querySelector(".chunked-scroll") as HTMLElement | null) ??
+          (wrap as HTMLElement | null);
+        if (sc) {
+          const max = sc.scrollHeight - sc.clientHeight;
+          if (max > 0) sc.scrollTop = p.frac * max;
+        }
+      }
+    },
+    [],
   );
 
   const handleSplitResize = useCallback(
@@ -422,6 +502,8 @@ export default function App() {
         setActiveHeading(null);
         setError(null);
         await api.setCurrentFile(path);
+        // Share viewers follow the open document; announce the switch.
+        void api.serveNotifyChange().catch(() => {});
         persist({ lastFile: path });
         if (stateRef.current.mode === "split") {
           syncTargetBiRef.current = 0;
@@ -556,16 +638,29 @@ export default function App() {
     }
   }, [saveDoc]);
 
-  const startServe = useCallback(async (lan: boolean) => {
-    if (lan && !window.confirm("局域网共享将绑定 0.0.0.0 并触发 Windows 防火墙授权弹窗,任何同网段设备都可访问。确认继续?")) {
-      return;
+  const startServe = useCallback(async (lan: boolean, follow: boolean, edit: boolean) => {
+    if (lan) {
+      const modeLabel = edit
+        ? "协作编辑 (远端可修改并保存文档)"
+        : follow
+          ? "同步浏览 (双向滚动同步)"
+          : "只读";
+      if (
+        !window.confirm(
+          `局域网分享将绑定 0.0.0.0 并可能触发防火墙授权弹窗,同一网络内持有链接的设备都能访问当前文档及其目录下的图片等附件。\n\n模式: ${modeLabel}\n确认继续?`,
+        )
+      ) {
+        return;
+      }
     }
     try {
-      const url = await api.serveStart(servePortRef.current, lan);
+      const url = await api.serveStart(servePortRef.current, lan, follow, edit);
       setServeUrl(url);
-      setInfo(`预览服务已启动: ${url}`);
+      setServePerms({ follow, edit });
+      setFollowRemote(false);
+      setInfo(`分享服务已启动: ${url}`);
     } catch (err) {
-      setError("启动预览服务失败: " + String(err));
+      setError("启动分享服务失败: " + String(err));
     }
   }, []);
 
@@ -573,9 +668,11 @@ export default function App() {
     try {
       await api.serveStop();
       setServeUrl(null);
-      setInfo("预览服务已停止");
+      setServePerms(null);
+      setFollowRemote(false);
+      setInfo("分享服务已停止");
     } catch (err) {
-      setError("停止预览服务失败: " + String(err));
+      setError("停止分享服务失败: " + String(err));
     }
   }, []);
 
@@ -642,10 +739,16 @@ export default function App() {
         setSidebarVisible((v) => !v);
         break;
       case "serve-local":
-        void startServe(false);
+        void startServe(false, false, false);
         break;
       case "serve-lan":
-        void startServe(true);
+        void startServe(true, false, false);
+        break;
+      case "serve-lan-follow":
+        void startServe(true, true, false);
+        break;
+      case "serve-lan-edit":
+        void startServe(true, true, true);
         break;
       case "serve-stop":
         void stopServe();
@@ -664,6 +767,86 @@ export default function App() {
       unlisten.then((fn) => fn());
     };
   }, []);
+
+  // Share session: mirror the dirty flag so viewers see a "本机有未保存修改"
+  // hint (initial state on join + live flips via the server broadcast).
+  useEffect(() => {
+    if (!serveUrl) return;
+    void api.serveSetDirty(dirty).catch(() => {});
+  }, [dirty, serveUrl]);
+
+  // Remote viewer events. Scroll moves the local view only when 跟随远端 is
+  // on; an edit applies only while the local buffer is clean, otherwise the
+  // viewer gets a rejection notice.
+  useEffect(() => {
+    const unScroll = listen<{
+      line?: number | null;
+      heading?: string | null;
+      frac?: number | null;
+    }>("serve-remote-scroll", (event) => {
+      if (!followRemoteRef.current) return;
+      applyRemoteScroll(event.payload);
+    });
+    const unEdit = listen<{ text: string }>("serve-remote-edit", async (event) => {
+      const s = stateRef.current;
+      if (!s.serveUrl) return;
+      if (!s.currentFile || !s.doc) {
+        void api.serveNotice("本机当前没有打开的文档,远端修改被拒绝").catch(() => {});
+        return;
+      }
+      if (dirtyRef.current) {
+        void api
+          .serveNotice("本机有未保存的修改,远端修改被拒绝;本机保存后可重试")
+          .catch(() => {});
+        return;
+      }
+      editTextRef.current = event.payload.text;
+      dirtyRef.current = true;
+      setDirty(true);
+      setDoc((prev) => (prev ? { ...prev, text: event.payload.text } : prev));
+      setInfo("已应用远端修改并保存");
+      await saveDoc();
+      void api.serveNotice("远端修改已应用").catch(() => {});
+    });
+    return () => {
+      unScroll.then((fn) => fn());
+      unEdit.then((fn) => fn());
+    };
+  }, [applyRemoteScroll, saveDoc]);
+
+  // Read mode: broadcast the local reading position to viewers (split mode
+  // broadcasts from the preview's top-block handler instead).
+  useEffect(() => {
+    if (!serveUrl || !servePerms?.follow || mode !== "read" || !doc) return;
+    const wrap = document.querySelector(".reader-wrap");
+    if (!wrap) return;
+    const sc =
+      (wrap.querySelector(".chunked-scroll") as HTMLElement | null) ??
+      (wrap as HTMLElement);
+    let lastSent = 0;
+    let raf: number | null = null;
+    const send = () => {
+      const now = Date.now();
+      if (now < remoteGuardRef.current || now - lastSent < 250) return;
+      lastSent = now;
+      const max = sc.scrollHeight - sc.clientHeight;
+      void api
+        .serveBroadcastScroll(null, activeHeadingRef.current, max > 0 ? sc.scrollTop / max : 0)
+        .catch(() => {});
+    };
+    const onScroll = () => {
+      if (raf != null) return;
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        send();
+      });
+    };
+    sc.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      sc.removeEventListener("scroll", onScroll);
+      if (raf != null) cancelAnimationFrame(raf);
+    };
+  }, [serveUrl, servePerms, mode, doc]);
 
   // Clear transient info notices after the banner animation finishes
   // (0.45s slide-in + 2s hold + 0.6s fade-out).
@@ -1137,17 +1320,46 @@ export default function App() {
                   {dirty && <span className="status-dirty">未保存</span>}
                   <span className="spacer" />
                   {serveUrl && (
-                    <a
-                      className="status-link"
-                      href={serveUrl}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        void openServe();
-                      }}
-                      title="在浏览器打开预览"
-                    >
-                      预览: {serveUrl}
-                    </a>
+                    <>
+                      {servePerms?.follow && (
+                        <button
+                          className={`tool-btn${followRemote ? " active" : ""}`}
+                          onClick={() => setFollowRemote((v) => !v)}
+                          title="开启后,远端浏览者滚动时本机视图跟随滚动"
+                        >
+                          {followRemote ? "跟随远端:开" : "跟随远端:关"}
+                        </button>
+                      )}
+                      <button
+                        className="tool-btn"
+                        onClick={() => {
+                          void copyText(serveUrl).then((ok) =>
+                            setInfo(ok ? "分享链接已复制" : "复制失败,请手动复制"),
+                          );
+                        }}
+                        title="复制分享链接"
+                      >
+                        复制链接
+                      </button>
+                      <span>
+                        {servePerms?.edit
+                          ? "协作编辑"
+                          : servePerms?.follow
+                            ? "同步浏览"
+                            : "只读分享"}
+                      </span>
+                      <a
+                        className="status-link"
+                        href={serveUrl}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          void openServe();
+                        }}
+                        title="在浏览器打开分享页"
+                      >
+                        分享: {serveUrl}
+                      </a>
+                    </>
                   )}
                 </footer>
               )}
