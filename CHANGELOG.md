@@ -2,8 +2,9 @@
 
 Ruakdown 各版本**相对上一版本的升级差异**,按时间倒序排列(最新在最上方)。
 
-发版流程:把最上方的 `## [未发布]` 改名为 `## [x.y.z] - YYYY-MM-DD`,同步 `src-tauri/tauri.conf.json` 与 `package.json` 的版本号,
-再推送 tag。Release 说明由 `.github/workflows/release.yml` 自动从本文件对应版本段落提取,无需另写。
+发版流程:在文件顶部(最新版本段落之上)新增 `## [x.y.z] - YYYY-MM-DD` 段落,写清相对上一版本的差异;
+同步 `src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 与 `package.json` 的版本号,提交后推送 `v*` tag。
+Release 说明由 `.github/workflows/release.yml` 自动从本文件对应版本段落提取,无需另写。
 
 ## 安装包与升级方式
 
@@ -18,7 +19,7 @@ Ruakdown 各版本**相对上一版本的升级差异**,按时间倒序排列(�
 
 ---
 
-## [未发布]
+## [0.6.0] - 2026-09-18
 
 相比 v0.5.1:
 
@@ -44,6 +45,8 @@ Ruakdown 各版本**相对上一版本的升级差异**,按时间倒序排列(�
 ### ⚠️ 升级提示
 - 分享链接现在携带访问令牌,**旧版分享出去的链接(无令牌)会鉴权失败**,请升级后重新生成。
 - 旧版给出的局域网地址本就不可用(`0.0.0.0`),新版展示的地址才是可直接打开的。
+
+[完整变更](https://github.com/cangyunye/ruakdown/compare/v0.5.1...v0.6.0)
 
 ## [0.5.1] - 2026-09-16
 

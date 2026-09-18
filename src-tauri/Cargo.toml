@@ -1,6 +1,6 @@
 [package]
 name = "ruakdown"
-version = "0.5.1"
+version = "0.6.0"
 description = "Windows-first Markdown reader & editor"
 authors = ["ruakdown"]
 edition = "2021"
