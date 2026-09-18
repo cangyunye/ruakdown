@@ -55,6 +55,47 @@ jobs:
       - name: 安装前端依赖
         run: pnpm install --frozen-lockfile
 
+      # 发布说明取自 CHANGELOG.md 中 "## [当前版本]" 段落(相对上一版本的差异),
+      # 再补一段下载说明。CHANGELOG 缺该版本段落时退化为通用提示并打 warning。
+      - name: 生成发布说明(取自 CHANGELOG.md)
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' src-tauri/tauri.conf.json | head -1)
+          echo "当前版本:$VERSION"
+
+          # 临时文件放 runner 临时目录,避免污染检出目录
+          NOTES_DIR="${RUNNER_TEMP:-$(mktemp -d)}"
+
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > "$NOTES_DIR/notes.raw"
+          # 去掉段落首尾的空行(BSD/GNU sed 通用写法)
+          sed '/[^[:space:]]/,$!d' "$NOTES_DIR/notes.raw" > "$NOTES_DIR/notes.md"
+
+          if ! grep -q '[^[:space:]]' "$NOTES_DIR/notes.md"; then
+            echo "::warning::CHANGELOG.md 中没有 [${VERSION}] 段落,发布说明退化为通用提示 — 请补写该版本的升级差异"
+            printf '本次更新内容见仓库 CHANGELOG.md。\n' > "$NOTES_DIR/notes.md"
+          fi
+
+          {
+            echo "body<<RELEASE_BODY_EOF"
+            cat "$NOTES_DIR/notes.md"
+            echo
+            echo "---"
+            echo
+            echo "## 下载"
+            echo
+            printf -- '- Windows x64:`Ruakdown_%s_x64-setup.exe`(NSIS 安装包,按当前用户安装,无需管理员)\n' "$VERSION"
+            printf -- '- macOS Apple Silicon:`Ruakdown_%s_aarch64.dmg`\n' "$VERSION"
+            echo
+            echo "覆盖安装即可升级,配置与已保存的设置保留;各版本差异见 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)。"
+            echo "RELEASE_BODY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: 构建安装包并上传到 Release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -64,7 +105,7 @@ jobs:
           # __VERSION__ 取自 src-tauri/tauri.conf.json 的 version
           tagName: ruakdown-v__VERSION__
           releaseName: 'Ruakdown v__VERSION__'
-          releaseBody: '从下方 Assets 下载对应平台的安装包。'
+          releaseBody: ${{ steps.notes.outputs.body }}
           # 构建成功即自动正式发布
           releaseDraft: false
           prerelease: false
