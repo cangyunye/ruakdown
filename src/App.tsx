@@ -183,6 +183,7 @@ export default function App() {
   const zenPosRef = useRef(zenPos);
   zenPosRef.current = zenPos;
   const zenCtlRef = useRef<ZenController | null>(null);
+  const readerWrapRef = useRef<HTMLDivElement | null>(null);
   const previewMetaRef = useRef<PreviewMeta | null>(null);
   previewMetaRef.current = previewMeta;
   // A chord can fire from both the native menu accelerator and the webview
@@ -591,6 +592,12 @@ export default function App() {
         stateRef.current.doc?.text ?? "",
       );
       setMode(next);
+      if (prev === "read" && next !== "read") {
+        // Zen sections only exist inside the reader. Leaving read mode must
+        // drop the now-invisible zen state, or the next Ctrl+Shift+Z would
+        // toggle it OFF with nothing visible happening.
+        setZenOn(false);
+      }
       if (next === "split") {
         syncTargetBiRef.current = 0;
         refreshPreview(true, "split");
@@ -599,12 +606,20 @@ export default function App() {
     [saveDoc, refreshPreview],
   );
 
-  const toggleZen = useCallback(() => {
-    if (stateRef.current.mode === "edit" || stateRef.current.mode === "split") {
-      void switchMode("read");
+  const toggleZen = useCallback(async () => {
+    if (stateRef.current.doc?.chunked) {
+      setInfo("分块渲染的大文档(>1MB)暂不支持专注模式");
+      return;
+    }
+    if (stateRef.current.mode !== "read") {
+      // The chord must always produce a visible effect: re-entering reading
+      // view turns zen ON, instead of toggling the stale hidden state.
+      await switchMode("read");
+      setZenOn(true);
+    } else {
+      setZenOn((v) => !v);
     }
     setZenPos(null);
-    setZenOn((v) => !v);
   }, [switchMode]);
 
   const handleZenUnavailable = useCallback(() => {
@@ -730,7 +745,7 @@ export default function App() {
         void switchMode("edit");
         break;
       case "toggle-zen":
-        fireOnce("zen", toggleZen);
+        fireOnce("zen", () => void toggleZen());
         break;
       case "toggle-fullscreen":
         fireOnce("fullscreen", () => void toggleFullscreen());
@@ -895,6 +910,9 @@ export default function App() {
   // accelerators do not fire while the webview has focus.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // IME composition (Chinese IMEs report key "Process") and held-key
+      // repeats must never re-trigger chords.
+      if (e.isComposing || e.repeat) return;
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
@@ -906,10 +924,10 @@ export default function App() {
         return;
       }
       // Zen: Ctrl/Cmd+Shift+Z (would otherwise trigger editor redo).
-      if (mod && e.shiftKey && key === "z") {
+      if (mod && e.shiftKey && key === "z" && !searchOpen && !settingsOpen) {
         e.preventDefault();
         e.stopPropagation();
-        fireOnce("zen", toggleZen);
+        fireOnce("zen", () => void toggleZen());
         return;
       }
       // Fullscreen: F11 everywhere; Ctrl+Cmd+F follows the macOS convention.
@@ -939,6 +957,26 @@ export default function App() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [fireOnce, toggleZen, toggleFullscreen, switchMode, fullscreenOn, zenOn, searchOpen, settingsOpen]);
+
+  // The reader gutters (left/right of the centered 860px body) belong to the
+  // overflow-hidden wrapper, so the wheel hits a dead zone there — forward it
+  // to the scroll container instead. Covers both Reader and ChunkedReader,
+  // which share the .md-body scroller.
+  useEffect(() => {
+    if (mode !== "read") return;
+    const wrap = readerWrapRef.current;
+    if (!wrap) return;
+    const onWheel = (e: WheelEvent) => {
+      const body = wrap.querySelector<HTMLElement>(".md-body");
+      if (!body) return;
+      if (e.target instanceof Node && body.contains(e.target)) return;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      body.scrollTop += e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+    };
+    wrap.addEventListener("wheel", onWheel, { passive: false });
+    return () => wrap.removeEventListener("wheel", onWheel);
+  }, [mode, doc]);
 
   // Restore last session (folder/file/theme) on startup. A path handed over
   // by the launching process (double-clicked .md) takes priority over the
@@ -1155,7 +1193,7 @@ export default function App() {
           {doc && !doc.chunked && (
             <button
               className={`tool-btn${zenOn ? " active" : ""}`}
-              onClick={toggleZen}
+              onClick={() => void toggleZen()}
               title={`专注模式 (${MOD_KEY}+Shift+Z, Esc 退出)`}
             >
               专注
@@ -1222,7 +1260,7 @@ export default function App() {
           {doc ? (
             <>
               {mode === "read" ? (
-                <div className="reader-wrap">
+                <div className="reader-wrap" ref={readerWrapRef}>
                   {doc.chunked ? (
                     <ChunkedReader
                       ref={chunkedReaderRef}

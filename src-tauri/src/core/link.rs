@@ -127,6 +127,12 @@ mod tests {
         fs::write(path, b"test").unwrap();
     }
 
+    /// Path-separator-agnostic comparison: `PathBuf::join` keeps `/` inside
+    /// pushed components on Windows while resolve() normalizes to `\`.
+    fn norm(path: &str) -> String {
+        path.replace('\\', "/")
+    }
+
     #[test]
     fn relative_link_resolves_against_document_dir() {
         let root = temp_dir("rel");
@@ -135,7 +141,7 @@ mod tests {
         write(&doc);
         write(&target);
         let r = resolve(&doc, "b.md", Some(&root));
-        assert_eq!(r.path, target.to_string_lossy());
+        assert_eq!(norm(&r.path), norm(target.to_string_lossy().as_ref()));
         assert!(r.exists);
         assert!(r.in_root);
         assert!(r.is_markdown);
@@ -150,13 +156,13 @@ mod tests {
         write(&doc);
         write(&target);
         let r = resolve(&doc, "../.././notes/./b.md", Some(&root));
-        assert_eq!(r.path, target.to_string_lossy());
+        assert_eq!(norm(&r.path), norm(target.to_string_lossy().as_ref()));
         assert!(r.exists);
         // One level up from docs/sub lands inside docs/.
         let sibling = root.join("docs/notes/other.md");
         write(&sibling);
         let r2 = resolve(&doc, ".././notes/./other.md", Some(&root));
-        assert_eq!(r2.path, sibling.to_string_lossy());
+        assert_eq!(norm(&r2.path), norm(sibling.to_string_lossy().as_ref()));
         assert!(r2.exists);
     }
 
@@ -168,7 +174,7 @@ mod tests {
         write(&doc);
         write(&target);
         let r = resolve(&doc, target.to_string_lossy().as_ref(), Some(&root));
-        assert_eq!(r.path, target.to_string_lossy());
+        assert_eq!(norm(&r.path), norm(target.to_string_lossy().as_ref()));
         assert!(r.exists);
     }
 

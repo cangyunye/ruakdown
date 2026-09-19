@@ -7,6 +7,8 @@ use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
 use syntect::util::LinesWithEndings;
 use serde::Serialize;
 
+use crate::core::frontmatter;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutlineItem {
@@ -27,6 +29,9 @@ pub(crate) fn md_options() -> Options {
     opts.insert(Options::ENABLE_TABLES);
     opts.insert(Options::ENABLE_STRIKETHROUGH);
     opts.insert(Options::ENABLE_TASKLISTS);
+    // Frontmatter: parsed (and silenced by push_html), surfaced as a property
+    // card by `frontmatter::card_html`.
+    opts.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
     opts
 }
 
@@ -67,11 +72,20 @@ pub fn render_markdown(source: &str) -> RenderedDoc {
         events.push(event);
     }
 
+    let frontmatter_card = frontmatter::metadata_text(&events)
+        .map(|raw| frontmatter::card_html(&raw))
+        .unwrap_or_default();
+
     let mut html_out = String::with_capacity(source.len() * 2);
     html::push_html(&mut html_out, highlight_code_events(events).into_iter());
     let html_out = inject_heading_ids(&html_out, &outline);
+    let html = if frontmatter_card.is_empty() {
+        html_out
+    } else {
+        format!("{frontmatter_card}{html_out}")
+    };
 
-    RenderedDoc { html: html_out, outline }
+    RenderedDoc { html, outline }
 }
 
 /// Replace each code-block event run with one raw-HTML event carrying the
@@ -249,7 +263,7 @@ fn escape_into(text: &str, out: &mut String) {
     }
 }
 
-fn escape_html(text: &str) -> String {
+pub(crate) fn escape_html(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     escape_into(text, &mut out);
     out
@@ -442,6 +456,33 @@ mod tests {
         assert_eq!(doc.outline[0].text, "标题 A");
         assert_ne!(doc.outline[0].id, doc.outline[2].id);
         assert!(doc.html.contains("<h1 id="));
+    }
+
+    #[test]
+    fn frontmatter_renders_as_property_card() {
+        let doc = render_markdown(
+            "---\ntitle: 示例文档\ntags:\n  - rust\n  - tauri\n---\n\n# 正文\n\ntext\n",
+        );
+        assert!(doc.html.starts_with("<div class=\"md-frontmatter\">"), "{}", doc.html);
+        assert!(doc.html.contains(">title</span>"));
+        assert!(doc.html.contains(">示例文档<"));
+        assert!(doc.html.contains(">rust, tauri<"));
+        // No thematic break, no setext heading, no outline pollution.
+        assert!(!doc.html.contains("<hr"), "{}", doc.html);
+        assert!(!doc.html.contains("<h2>"), "{}", doc.html);
+        assert_eq!(doc.outline.len(), 1);
+        assert_eq!(doc.outline[0].text, "正文");
+    }
+
+    #[test]
+    fn frontmatter_escapes_html_and_plain_docs_unaffected() {
+        let doc = render_markdown("---\nscript: <b>x</b>\n---\n\ntext\n");
+        assert!(doc.html.contains("&lt;b&gt;x&lt;/b&gt;"), "{}", doc.html);
+
+        // Mid-document `---` and non-frontmatter docs keep rendering as before.
+        let plain = render_markdown("# A\n\ntext\n\n---\n\nmore\n");
+        assert!(plain.html.contains("<hr"));
+        assert!(!plain.html.contains("md-frontmatter"));
     }
 
     #[test]

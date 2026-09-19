@@ -101,6 +101,13 @@ body {
 .md-body h1 { font-size: 1.9em; margin-top: 0.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
 .md-body h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
 .md-body h3 { font-size: 1.25em; }
+.md-frontmatter {
+  margin: 0 0 1.6em; padding: 10px 14px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; font-size: 13px; line-height: 1.6;
+}
+.md-frontmatter .fm-row { display: flex; gap: 12px; padding: 2px 0; }
+.md-frontmatter .fm-key { flex: none; min-width: 88px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
+.md-frontmatter .fm-val { color: var(--text); overflow-wrap: anywhere; }
 .md-body p { margin: 0.8em 0; }
 .md-body a { color: var(--link); text-decoration: none; }
 .md-body a:hover { text-decoration: underline; }

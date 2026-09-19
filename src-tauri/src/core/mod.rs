@@ -1,6 +1,7 @@
 pub mod config;
 pub mod export;
 pub mod file;
+pub mod frontmatter;
 pub mod imgsize;
 pub mod large_doc;
 pub mod link;

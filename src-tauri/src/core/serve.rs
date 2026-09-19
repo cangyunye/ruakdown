@@ -568,6 +568,13 @@ body { margin:0; font-family:"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei
 #doc h1,#doc h2,#doc h3,#doc h4,#doc h5,#doc h6 { color:var(--heading); line-height:1.35; margin:1.6em 0 .6em; }
 #doc h1 { font-size:1.9em; border-bottom:1px solid var(--border); padding-bottom:.3em; }
 #doc h2 { font-size:1.5em; border-bottom:1px solid var(--border); padding-bottom:.25em; }
+#doc .md-frontmatter {
+  margin:0 0 1.6em; padding:10px 14px; background:var(--panel);
+  border:1px solid var(--border); border-radius:8px; font-size:13px; line-height:1.6;
+}
+#doc .md-frontmatter .fm-row { display:flex; gap:12px; padding:2px 0; }
+#doc .md-frontmatter .fm-key { flex:none; min-width:88px; color:var(--muted); font-weight:600; overflow-wrap:anywhere; }
+#doc .md-frontmatter .fm-val { color:var(--text); overflow-wrap:anywhere; }
 #doc a { color:var(--link); }
 #doc code { font-family:Consolas,monospace; font-size:.9em; background:var(--code-bg);
   color:var(--code-text); padding:.15em .4em; border-radius:5px; }

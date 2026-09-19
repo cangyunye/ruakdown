@@ -1,3 +1,4 @@
+use crate::core::frontmatter;
 use crate::core::markdown::{highlight_code_events, make_heading_id, md_options};
 use pulldown_cmark::{html, CodeBlockKind, Event, Parser, Tag, TagEnd};
 use serde::Serialize;
@@ -328,8 +329,18 @@ fn finish_block(events: Vec<Event<'_>>, heading_counter: &mut usize) -> RawBlock
         }
     }
 
-    let mut html = String::with_capacity(events.len() * 24);
-    html::push_html(&mut html, highlight_code_events(events).into_iter());
+    // A metadata block's events render to nothing via push_html; its raw text
+    // becomes the frontmatter property card so chunk concatenation stays
+    // byte-identical with the full-document render.
+    let mut html = if matches!(events.first(), Some(Event::Start(Tag::MetadataBlock(_)))) {
+        frontmatter::metadata_text(&events)
+            .map(|raw| frontmatter::card_html(&raw))
+            .unwrap_or_default()
+    } else {
+        let mut buf = String::with_capacity(events.len() * 24);
+        html::push_html(&mut buf, highlight_code_events(events).into_iter());
+        buf
+    };
     let tags = count_tags(&html);
 
     let heading = heading.map(|(level, text)| {
@@ -618,7 +629,7 @@ fn assemble(
             tags,
             mermaid,
             kind,
-            heading,
+            heading: _,
             img_heights,
             ..
         } = block;
@@ -709,6 +720,16 @@ mod tests {
         let joined = strip_data_bi(&concat_chunks(&doc));
         let full = render_markdown(&source).html;
         assert_eq!(joined, full, "chunk concatenation must equal full render");
+    }
+
+    #[test]
+    fn frontmatter_chunk_concat_equals_full_render() {
+        let source = format!("---\ntitle: 示例文档\ntags: rust, tauri\n---\n\n{}", TEMPLATE.repeat(50));
+        let doc = build(&source);
+        assert!(doc.chunks[0].html.contains("md-frontmatter"), "{}", doc.chunks[0].html);
+        let joined = strip_data_bi(&concat_chunks(&doc));
+        let full = render_markdown(&source).html;
+        assert_eq!(joined, full, "frontmatter card must render identically in both paths");
     }
 
     #[test]

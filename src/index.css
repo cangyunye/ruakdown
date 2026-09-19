@@ -1000,6 +1000,39 @@ html.split-resizing * {
   font-size: 1.25em;
 }
 
+/* ---------- frontmatter property card ---------- */
+
+/* Declarative presentation of the document's top `---` metadata block;
+   the HTML is generated Rust-side (core/frontmatter.rs). */
+.md-frontmatter {
+  margin: 0 0 1.6em;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.fm-row {
+  display: flex;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.fm-key {
+  flex: none;
+  min-width: 88px;
+  color: var(--muted);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.fm-val {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 .md-body p {
   margin: 0.8em 0;
 }
