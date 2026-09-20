@@ -19,6 +19,14 @@
     "--quote-text": "#857a5e",
     "--table-border": "#d5c8a2",
     "--mermaid-bg": "#f3ecd9",
-    "--reader-overlay-rgb": "243, 236, 217"
+    "--reader-overlay-rgb": "243, 236, 217",
+    "--chip-0": "#b3362d",
+    "--chip-1": "#a54a17",
+    "--chip-2": "#7d6a14",
+    "--chip-3": "#3d6b35",
+    "--chip-4": "#2e6b6e",
+    "--chip-5": "#3a5f8a",
+    "--chip-6": "#6e4a7d",
+    "--chip-7": "#a03e6b"
   }
 }

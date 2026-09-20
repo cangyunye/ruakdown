@@ -466,7 +466,8 @@ mod tests {
         assert!(doc.html.starts_with("<div class=\"md-frontmatter\">"), "{}", doc.html);
         assert!(doc.html.contains(">title</span>"));
         assert!(doc.html.contains(">示例文档<"));
-        assert!(doc.html.contains(">rust, tauri<"));
+        assert!(doc.html.contains(">rust<"), "{}", doc.html);
+        assert!(doc.html.contains(">tauri<"), "{}", doc.html);
         // No thematic break, no setext heading, no outline pollution.
         assert!(!doc.html.contains("<hr"), "{}", doc.html);
         assert!(!doc.html.contains("<h2>"), "{}", doc.html);

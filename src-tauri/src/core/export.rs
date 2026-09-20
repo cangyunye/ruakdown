@@ -105,9 +105,25 @@ body {
   margin: 0 0 1.6em; padding: 10px 14px; background: var(--panel);
   border: 1px solid var(--border); border-radius: 8px; font-size: 13px; line-height: 1.6;
 }
-.md-frontmatter .fm-row { display: flex; gap: 12px; padding: 2px 0; }
+.md-frontmatter .fm-row { display: flex; gap: 12px; padding: 2px 0; align-items: baseline; }
 .md-frontmatter .fm-key { flex: none; min-width: 88px; color: var(--muted); font-weight: 600; overflow-wrap: anywhere; }
 .md-frontmatter .fm-val { color: var(--text); overflow-wrap: anywhere; }
+.md-frontmatter .fm-title .fm-val { font-size: 1.5em; font-weight: 700; color: var(--heading); line-height: 1.4; padding-bottom: 2px; }
+.md-frontmatter .fm-desc .fm-val { color: var(--muted); font-style: italic; }
+.md-frontmatter .fm-items { display: flex; flex-direction: column; gap: 2px; }
+.md-frontmatter .fm-item { display: block; }
+.md-frontmatter .fm-pair-key { color: var(--muted); }
+.md-frontmatter .fm-sep { color: var(--muted); }
+.md-frontmatter .fm-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.md-frontmatter .fm-chip { padding: 1px 10px; border-radius: 999px; border: 1px solid; font-size: 12px; line-height: 1.6; white-space: nowrap; }
+.md-frontmatter .chip-0 { color: var(--chip-0); background: color-mix(in srgb, var(--chip-0) 12%, transparent); border-color: color-mix(in srgb, var(--chip-0) 30%, transparent); }
+.md-frontmatter .chip-1 { color: var(--chip-1); background: color-mix(in srgb, var(--chip-1) 12%, transparent); border-color: color-mix(in srgb, var(--chip-1) 30%, transparent); }
+.md-frontmatter .chip-2 { color: var(--chip-2); background: color-mix(in srgb, var(--chip-2) 14%, transparent); border-color: color-mix(in srgb, var(--chip-2) 30%, transparent); }
+.md-frontmatter .chip-3 { color: var(--chip-3); background: color-mix(in srgb, var(--chip-3) 12%, transparent); border-color: color-mix(in srgb, var(--chip-3) 30%, transparent); }
+.md-frontmatter .chip-4 { color: var(--chip-4); background: color-mix(in srgb, var(--chip-4) 12%, transparent); border-color: color-mix(in srgb, var(--chip-4) 30%, transparent); }
+.md-frontmatter .chip-5 { color: var(--chip-5); background: color-mix(in srgb, var(--chip-5) 10%, transparent); border-color: color-mix(in srgb, var(--chip-5) 30%, transparent); }
+.md-frontmatter .chip-6 { color: var(--chip-6); background: color-mix(in srgb, var(--chip-6) 12%, transparent); border-color: color-mix(in srgb, var(--chip-6) 30%, transparent); }
+.md-frontmatter .chip-7 { color: var(--chip-7); background: color-mix(in srgb, var(--chip-7) 12%, transparent); border-color: color-mix(in srgb, var(--chip-7) 30%, transparent); }
 .md-body p { margin: 0.8em 0; }
 .md-body a { color: var(--link); text-decoration: none; }
 .md-body a:hover { text-decoration: underline; }

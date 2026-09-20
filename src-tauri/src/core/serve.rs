@@ -542,7 +542,9 @@ const SERVE_PAGE: &str = r#"<!doctype html>
   --mask:rgba(31,35,40,.45);
   --syn-keyword:#cf222e; --syn-string:#0a3069; --syn-comment:#6e7781; --syn-number:#0550ae;
   --syn-const:#0550ae; --syn-function:#8250df; --syn-type:#953800; --syn-variable:#0550ae;
-  --syn-tag:#116329; --syn-attr:#0550ae; }
+  --syn-tag:#116329; --syn-attr:#0550ae;
+  --chip-0:#cf222e; --chip-1:#bc4c00; --chip-2:#9a6700; --chip-3:#1a7f37;
+  --chip-4:#1b7c83; --chip-5:#0969da; --chip-6:#8250df; --chip-7:#bf3989; }
 @media (prefers-color-scheme: dark) {
 :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e;
   --heading:#e6edf3; --link:#4493f8; --accent:#4493f8; --accent-soft:rgba(68,147,248,.18);
@@ -551,7 +553,9 @@ const SERVE_PAGE: &str = r#"<!doctype html>
   --mask:rgba(0,0,0,.55);
   --syn-keyword:#ff7b72; --syn-string:#a5d6ff; --syn-comment:#8b949e; --syn-number:#79c0ff;
   --syn-const:#79c0ff; --syn-function:#d2a8ff; --syn-type:#ffa657; --syn-variable:#79c0ff;
-  --syn-tag:#7ee787; --syn-attr:#79c0ff; }
+  --syn-tag:#7ee787; --syn-attr:#79c0ff;
+  --chip-0:#ff8182; --chip-1:#ffa657; --chip-2:#d4a72c; --chip-3:#7ee787;
+  --chip-4:#76e3ea; --chip-5:#79c0ff; --chip-6:#d2a8ff; --chip-7:#ff9bce; }
 }
 * { box-sizing: border-box; }
 body { margin:0; font-family:"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
@@ -572,9 +576,25 @@ body { margin:0; font-family:"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei
   margin:0 0 1.6em; padding:10px 14px; background:var(--panel);
   border:1px solid var(--border); border-radius:8px; font-size:13px; line-height:1.6;
 }
-#doc .md-frontmatter .fm-row { display:flex; gap:12px; padding:2px 0; }
+#doc .md-frontmatter .fm-row { display:flex; gap:12px; padding:2px 0; align-items:baseline; }
 #doc .md-frontmatter .fm-key { flex:none; min-width:88px; color:var(--muted); font-weight:600; overflow-wrap:anywhere; }
 #doc .md-frontmatter .fm-val { color:var(--text); overflow-wrap:anywhere; }
+#doc .md-frontmatter .fm-title .fm-val { font-size:1.5em; font-weight:700; color:var(--heading); line-height:1.4; padding-bottom:2px; }
+#doc .md-frontmatter .fm-desc .fm-val { color:var(--muted); font-style:italic; }
+#doc .md-frontmatter .fm-items { display:flex; flex-direction:column; gap:2px; }
+#doc .md-frontmatter .fm-item { display:block; }
+#doc .md-frontmatter .fm-pair-key { color:var(--muted); }
+#doc .md-frontmatter .fm-sep { color:var(--muted); }
+#doc .md-frontmatter .fm-chips { display:flex; flex-wrap:wrap; gap:6px; }
+#doc .md-frontmatter .fm-chip { padding:1px 10px; border-radius:999px; border:1px solid; font-size:12px; line-height:1.6; white-space:nowrap; }
+#doc .md-frontmatter .chip-0 { color:var(--chip-0); background:color-mix(in srgb,var(--chip-0) 12%,transparent); border-color:color-mix(in srgb,var(--chip-0) 30%,transparent); }
+#doc .md-frontmatter .chip-1 { color:var(--chip-1); background:color-mix(in srgb,var(--chip-1) 12%,transparent); border-color:color-mix(in srgb,var(--chip-1) 30%,transparent); }
+#doc .md-frontmatter .chip-2 { color:var(--chip-2); background:color-mix(in srgb,var(--chip-2) 14%,transparent); border-color:color-mix(in srgb,var(--chip-2) 30%,transparent); }
+#doc .md-frontmatter .chip-3 { color:var(--chip-3); background:color-mix(in srgb,var(--chip-3) 12%,transparent); border-color:color-mix(in srgb,var(--chip-3) 30%,transparent); }
+#doc .md-frontmatter .chip-4 { color:var(--chip-4); background:color-mix(in srgb,var(--chip-4) 12%,transparent); border-color:color-mix(in srgb,var(--chip-4) 30%,transparent); }
+#doc .md-frontmatter .chip-5 { color:var(--chip-5); background:color-mix(in srgb,var(--chip-5) 10%,transparent); border-color:color-mix(in srgb,var(--chip-5) 30%,transparent); }
+#doc .md-frontmatter .chip-6 { color:var(--chip-6); background:color-mix(in srgb,var(--chip-6) 12%,transparent); border-color:color-mix(in srgb,var(--chip-6) 30%,transparent); }
+#doc .md-frontmatter .chip-7 { color:var(--chip-7); background:color-mix(in srgb,var(--chip-7) 12%,transparent); border-color:color-mix(in srgb,var(--chip-7) 30%,transparent); }
 #doc a { color:var(--link); }
 #doc code { font-family:Consolas,monospace; font-size:.9em; background:var(--code-bg);
   color:var(--code-text); padding:.15em .4em; border-radius:5px; }
