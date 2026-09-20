@@ -11,3 +11,8 @@ pnpm tauri icon design/app-icon.png
 ```
 
 `preview-sizes.png` 为 256/128/64/32/20 尺寸在浅色/深色底上的可读性预览。
+
+## 其他过程产物
+
+`icon1.png`、`compare-large.png`、`compare-small.png`、`frontmatter-card-demo.html`
+为设计/调试过程稿:仅保留在本地(gitignore 已忽略 `design/*.png` 与 `design/*.html`),不进仓库。

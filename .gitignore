@@ -29,3 +29,7 @@ dist-ssr
 # Regenerable demo artifacts (export output / stress-test file)
 demo/示例文档.html
 demo/大文档压力测试.md
+
+# 设计过程产物(初稿/对比图/演示页):仅保留在本地,不进仓库
+design/*.png
+design/*.html
