@@ -95,6 +95,8 @@ const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function PreviewPane(
   const onOpenLinkRef = useRef(onOpenLink);
   onOpenLinkRef.current = onOpenLink;
   const docKeyRef = useRef<string | null>(null);
+  // Revision of the last full (re)build; same-rev meta effects are skipped.
+  const lastRevRef = useRef<number>(-1);
   // Latest scroll handler for the ResizeObserver (hoisted `onScroll` is
   // recreated per render with fresh meta in scope).
   const onScrollRef = useRef<() => void>(() => {});
@@ -402,6 +404,14 @@ const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function PreviewPane(
 
     const resetScroll = docKeyRef.current !== docKey;
     docKeyRef.current = docKey;
+
+    // Same-rev meta objects are re-serves of an unchanged build (e.g. a
+    // mode flip or a redundant previewUpdate): the mounted chunks are still
+    // valid, so skip the teardown/rebuild and the fetch storm it triggers.
+    if (!resetScroll && meta.rev === lastRevRef.current) {
+      return;
+    }
+    lastRevRef.current = meta.rev;
 
     inner.innerHTML = "";
     st.current.heights = meta.chunks.map((c) => c.estHeight);

@@ -1,6 +1,6 @@
 [package]
 name = "ruakdown"
-version = "0.6.2"
+version = "0.7.0"
 description = "Windows-first Markdown reader & editor"
 authors = ["ruakdown"]
 edition = "2021"
@@ -25,13 +25,21 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 notify = "8"
-axum = { version = "=0.8.7", features = ["ws"] }
+# LAN share server (serve.rs) — the only consumer; build without the
+# `share` feature for a lightweight binary without axum/tokio.
+axum = { version = "=0.8.7", features = ["ws"], optional = true }
+tokio = { version = "1", optional = true, features = ["rt", "net", "fs", "sync", "macros"] }
 percent-encoding = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "fs", "time", "sync"] }
 encoding_rs = "0.8"
 dunce = "1"
 syntect = { version = "5", default-features = false, features = ["default-fancy"] }
 imagesize = "0.13"
+
+[features]
+default = []
+# 局域网分享(本机预览 / 同步浏览 / 协作编辑):`--features share` 启用。
+# 轻量版(默认)不含 axum 服务,分享相关命令与菜单一并裁掉。
+share = ["dep:axum", "dep:tokio"]
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

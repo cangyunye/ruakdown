@@ -1,6 +1,6 @@
 import type { Mode } from "./split";
 
-export type FsChangeDecision = "ignore" | "prompt" | "reload";
+type FsChangeDecision = "ignore" | "prompt" | "reload";
 
 /** Marker for a write this app just performed; fs events for the same file
  * before `until` are echoes of our own save, not external edits. */
@@ -10,7 +10,7 @@ export interface SelfSaveMark {
   until: number;
 }
 
-export interface FsChangeInput {
+interface FsChangeInput {
   paths: string[];
   currentFile: string | null;
   mode: Mode;

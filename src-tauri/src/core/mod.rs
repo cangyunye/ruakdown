@@ -8,6 +8,8 @@ pub mod link;
 pub mod markdown;
 pub mod preview;
 pub mod search;
+#[cfg(feature = "share")]
 pub mod serve;
+pub mod style;
 pub mod theme;
 pub mod watch;

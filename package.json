@@ -1,7 +1,7 @@
 {
   "name": "ruakdown",
   "private": true,
-  "version": "0.6.2",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,13 +14,11 @@
     "@codemirror/commands": "^6",
     "@codemirror/lang-markdown": "^6",
     "@codemirror/language": "^6",
-    "@codemirror/search": "^6",
     "@codemirror/state": "^6",
     "@codemirror/view": "^6",
     "@lezer/highlight": "^1",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "mermaid": "^12.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

@@ -110,12 +110,6 @@ export interface AppConfig {
   split: SplitConfig | null;
 }
 
-export interface ThemeInfo {
-  id: string;
-  name: string;
-  dark: boolean;
-}
-
 export interface Theme {
   name: string;
   dark: boolean;
@@ -169,14 +163,14 @@ export const api = {
   saveFile: (path: string, text: string, encoding: string, eol: string) =>
     invoke<SaveResult>("save_file", { path, text, encoding, eol }),
   watchFolder: (root: string) => invoke<void>("watch_folder", { root }),
-  stopWatch: () => invoke<void>("stop_watch"),
   resolveLink: (baseFile: string, link: string, root: string | null) =>
     invoke<ResolvedLink>("resolve_link", { baseFile, link, root }),
   takePendingOpen: () => invoke<string | null>("take_pending_open"),
   getConfig: () => invoke<AppConfig>("get_config"),
   saveConfig: (config: AppConfig) => invoke<void>("save_config", { config }),
-  listThemes: () => invoke<ThemeInfo[]>("list_themes"),
   applyTheme: (name: string) => invoke<Theme>("apply_theme", { name }),
+  /** Absolute path of the bundled mermaid.min.js (loaded via asset protocol). */
+  mermaidAssetPath: () => invoke<string>("mermaid_asset_path"),
   pickExportPath: (defaultName: string) =>
     invoke<string | null>("pick_export_path", { defaultName }),
   exportHtml: (
@@ -193,7 +187,9 @@ export const api = {
     }),
   setCurrentFile: (path: string | null) => invoke<void>("set_current_file", { path }),
   setFullscreen: (fullscreen: boolean) => invoke<void>("set_fullscreen", { fullscreen }),
-  serveStatus: () => invoke<string | null>("serve_status"),
+  // Share commands below only exist in `--features share` builds. The
+  // lightweight build has no share menu, so none of these are ever invoked
+  // there; every call site swallows the rejection as a safety net.
   serveStart: (port: number, lan: boolean, follow: boolean, edit: boolean) =>
     invoke<string>("serve_start", { port, lan, follow, edit }),
   serveStop: () => invoke<void>("serve_stop"),

@@ -250,7 +250,7 @@ fn file_sig(meta: &std::fs::Metadata) -> String {
 }
 
 async fn root() -> Html<&'static str> {
-    Html(SERVE_PAGE)
+    Html(serve_page())
 }
 
 #[derive(Serialize)]
@@ -273,7 +273,7 @@ struct BlockBrief {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ApiDoc {
+pub struct ApiDoc {
     title: String,
     html: String,
     file: Option<String>,
@@ -413,12 +413,19 @@ async fn static_file(
     };
     let rel = decoded.trim_start_matches(['/', '\\']);
     let full: PathBuf = dir.join(rel);
-    let (Ok(canon), Ok(dir_canon)) = (full.canonicalize(), dir.canonicalize()) else {
-        return (StatusCode::NOT_FOUND, "not found").into_response();
+    // canonicalize is blocking IO (slow on network drives); keep it off the
+    // async worker. The remaining fs calls already use tokio::fs.
+    let dir_for_task = dir.clone();
+    let canon = match tauri::async_runtime::spawn_blocking(move || {
+        full.canonicalize()
+            .ok()
+            .filter(|c| dir_for_task.canonicalize().map(|d| c.starts_with(&d)).unwrap_or(false))
+    })
+    .await
+    {
+        Ok(Some(canon)) => canon,
+        _ => return (StatusCode::NOT_FOUND, "not found").into_response(),
     };
-    if !canon.starts_with(&dir_canon) {
-        return (StatusCode::FORBIDDEN, "forbidden").into_response();
-    }
     let name = canon
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -518,7 +525,7 @@ fn handle_client_msg(shared: &Shared, txt: &str) {
     }
 }
 
-pub fn content_type_for(name: &str) -> Option<&'static str> {
+fn content_type_for(name: &str) -> Option<&'static str> {
     let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase());
     let ext = ext.as_deref()?;
     TEXT_EXT
@@ -528,7 +535,11 @@ pub fn content_type_for(name: &str) -> Option<&'static str> {
         .map(|(_, t)| *t)
 }
 
-const SERVE_PAGE: &str = r#"<!doctype html>
+/// Page shell only (variables, bar, layout, toc/edit dialogs). Markdown
+/// *content* styles come from [`crate::core::style::MD_CONTENT_CSS`], shared
+/// with index.css and export.rs; the `#doc` container below carries
+/// `class="md-body"` so those shared rules apply here too.
+const SERVE_PAGE_HEAD: &str = r#"<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -569,58 +580,9 @@ body { margin:0; font-family:"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei
 #bar button:hover { border-color:var(--accent); color:var(--accent); }
 #bar button.on { background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
 #doc { max-width:860px; margin:0 auto; padding:32px 48px 80px; line-height:1.75; }
-#doc h1,#doc h2,#doc h3,#doc h4,#doc h5,#doc h6 { color:var(--heading); line-height:1.35; margin:1.6em 0 .6em; }
-#doc h1 { font-size:1.9em; border-bottom:1px solid var(--border); padding-bottom:.3em; }
-#doc h2 { font-size:1.5em; border-bottom:1px solid var(--border); padding-bottom:.25em; }
-#doc .md-frontmatter {
-  margin:0 0 1.6em; padding:10px 14px; background:var(--panel);
-  border:1px solid var(--border); border-radius:8px; font-size:13px; line-height:1.6;
-}
-#doc .md-frontmatter .fm-row { display:flex; gap:12px; padding:2px 0; align-items:baseline; }
-#doc .md-frontmatter .fm-key { flex:none; min-width:88px; color:var(--muted); font-weight:600; overflow-wrap:anywhere; }
-#doc .md-frontmatter .fm-val { color:var(--text); overflow-wrap:anywhere; }
-#doc .md-frontmatter .fm-title .fm-val { font-size:1.5em; font-weight:700; color:var(--heading); line-height:1.4; padding-bottom:2px; }
-#doc .md-frontmatter .fm-desc .fm-val { color:var(--muted); font-style:italic; }
-#doc .md-frontmatter .fm-items { display:flex; flex-direction:column; gap:2px; }
-#doc .md-frontmatter .fm-item { display:block; }
-#doc .md-frontmatter .fm-pair-key { color:var(--muted); }
-#doc .md-frontmatter .fm-sep { color:var(--muted); }
-#doc .md-frontmatter .fm-chips { display:flex; flex-wrap:wrap; gap:6px; }
-#doc .md-frontmatter .fm-chip { padding:1px 10px; border-radius:999px; border:1px solid; font-size:12px; line-height:1.6; white-space:nowrap; }
-#doc .md-frontmatter .chip-0 { color:var(--chip-0); background:color-mix(in srgb,var(--chip-0) 12%,transparent); border-color:color-mix(in srgb,var(--chip-0) 30%,transparent); }
-#doc .md-frontmatter .chip-1 { color:var(--chip-1); background:color-mix(in srgb,var(--chip-1) 12%,transparent); border-color:color-mix(in srgb,var(--chip-1) 30%,transparent); }
-#doc .md-frontmatter .chip-2 { color:var(--chip-2); background:color-mix(in srgb,var(--chip-2) 14%,transparent); border-color:color-mix(in srgb,var(--chip-2) 30%,transparent); }
-#doc .md-frontmatter .chip-3 { color:var(--chip-3); background:color-mix(in srgb,var(--chip-3) 12%,transparent); border-color:color-mix(in srgb,var(--chip-3) 30%,transparent); }
-#doc .md-frontmatter .chip-4 { color:var(--chip-4); background:color-mix(in srgb,var(--chip-4) 12%,transparent); border-color:color-mix(in srgb,var(--chip-4) 30%,transparent); }
-#doc .md-frontmatter .chip-5 { color:var(--chip-5); background:color-mix(in srgb,var(--chip-5) 10%,transparent); border-color:color-mix(in srgb,var(--chip-5) 30%,transparent); }
-#doc .md-frontmatter .chip-6 { color:var(--chip-6); background:color-mix(in srgb,var(--chip-6) 12%,transparent); border-color:color-mix(in srgb,var(--chip-6) 30%,transparent); }
-#doc .md-frontmatter .chip-7 { color:var(--chip-7); background:color-mix(in srgb,var(--chip-7) 12%,transparent); border-color:color-mix(in srgb,var(--chip-7) 30%,transparent); }
-#doc a { color:var(--link); }
-#doc code { font-family:Consolas,monospace; font-size:.9em; background:var(--code-bg);
-  color:var(--code-text); padding:.15em .4em; border-radius:5px; }
-#doc pre { background:var(--pre-bg); border:1px solid var(--pre-border); border-radius:8px;
-  padding:14px 16px; overflow:auto; }
-#doc pre code { background:transparent; color:var(--text); padding:0; }
-#doc pre code .tok-keyword { color:var(--syn-keyword); }
-#doc pre code .tok-string { color:var(--syn-string); }
-#doc pre code .tok-comment { color:var(--syn-comment); font-style:italic; }
-#doc pre code .tok-number { color:var(--syn-number); }
-#doc pre code .tok-const { color:var(--syn-const); }
-#doc pre code .tok-function { color:var(--syn-function); }
-#doc pre code .tok-type { color:var(--syn-type); }
-#doc pre code .tok-variable { color:var(--syn-variable); }
-#doc pre code .tok-tag { color:var(--syn-tag); }
-#doc pre code .tok-attr { color:var(--syn-attr); }
-#doc blockquote { margin:1em 0; padding:.2em 1em; border-left:4px solid var(--quote-border);
-  color:var(--quote-text); background:var(--panel); }
-#doc table { border-collapse:collapse; margin:1em 0; width:100%; }
-#doc th,#doc td { border:1px solid var(--table-border); padding:6px 12px; text-align:left; }
-#doc th { background:var(--panel); }
-#doc img { max-width:100%; height:auto; max-height:60vh; object-fit:contain; }
-.mermaid-block { margin:1em 0; padding:12px; background:var(--mermaid-bg);
-  border:1px solid var(--border); border-radius:8px; text-align:center; }
-.mermaid-block svg { max-width:100%; }
-#toc { position:fixed; top:48px; right:12px; width:280px; max-height:72vh; overflow:auto;
+"#;
+
+const SERVE_PAGE_TAIL: &str = r#"#toc { position:fixed; top:48px; right:12px; width:280px; max-height:72vh; overflow:auto;
   background:var(--panel); border:1px solid var(--border); border-radius:10px;
   padding:10px 12px; display:none; z-index:20; font-size:13px; }
 #toc.open { display:block; }
@@ -658,7 +620,7 @@ body { margin:0; font-family:"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei
   <button id="tocbtn" type="button">目录</button>
   <button id="editbtn" type="button" style="display:none">编辑</button>
 </div>
-<div id="doc"></div>
+<div id="doc" class="md-body"></div>
 <div id="toc"></div>
 <div id="editwrap"><div id="editbox">
   <header><span>编辑文档(提交后由本机确认写入)</span><span class="grow"></span>
@@ -878,6 +840,19 @@ body { margin:0; font-family:"Segoe UI",system-ui,"PingFang SC","Microsoft YaHei
 </html>
 "#;
 
+/// Assemble the share page once: shell + shared markdown content styles.
+fn serve_page() -> &'static str {
+    static PAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PAGE.get_or_init(|| {
+        format!(
+            "{}{}{}",
+            SERVE_PAGE_HEAD,
+            crate::core::style::MD_CONTENT_CSS,
+            SERVE_PAGE_TAIL
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -928,6 +903,15 @@ mod tests {
         assert_eq!(content_type_for("a.PNG"), Some("image/png"));
         assert_eq!(content_type_for("x.webp"), Some("image/webp"));
         assert_eq!(content_type_for("noext"), None);
+    }
+
+    #[test]
+    fn serve_page_splices_shared_content_css() {
+        let page = serve_page();
+        assert!(page.contains(".md-body h1"), "shared content styles embedded");
+        assert!(page.contains(".md-frontmatter"), "frontmatter card styles embedded");
+        assert!(page.contains("id=\"doc\" class=\"md-body\""), "doc container carries md-body class");
+        assert!(page.contains("id=\"toc\""), "page shell survives the splice");
     }
 
     #[test]

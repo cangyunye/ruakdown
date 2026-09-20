@@ -8,6 +8,9 @@ mod core;
 
 pub struct AppState {
     pub current_file: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    /// Share server handle; only present in `--features share` builds (the
+    /// lightweight build has no server and no share menu).
+    #[cfg(feature = "share")]
     pub serve: std::sync::Mutex<Option<core::serve::ServeHandle>>,
     /// File path requested by the launching process (double-clicked .md),
     /// consumed by the frontend once the session restore has finished.
@@ -18,7 +21,7 @@ pub struct AppState {
 /// user double-clicked. Program name and flags (there are none) can never
 /// match because they are not .md files on disk, so scanning all args is
 /// safe whether or not argv[0] is included by the caller.
-pub fn pick_file_arg(args: &[String]) -> Option<String> {
+fn pick_file_arg(args: &[String]) -> Option<String> {
     args.iter()
         .find(|arg| {
             let p = std::path::Path::new(arg);
@@ -45,9 +48,44 @@ fn deliver_open_file(app: &tauri::AppHandle, path: Option<String>) {
     }
 }
 
+/// In-memory chunk cache for open large documents. Entries are keyed by the
+/// path hash; insertion order is tracked so opening more than [`CAP`]
+/// documents evicts the oldest instead of growing until process exit.
 #[derive(Default)]
 pub struct LargeDocStore {
     pub docs: std::sync::Mutex<std::collections::HashMap<u32, core::large_doc::CachedDoc>>,
+    order: std::sync::Mutex<std::collections::VecDeque<u32>>,
+}
+
+impl LargeDocStore {
+    /// Documents kept rendered at once. One is plenty for reading; a small
+    /// cap absorbs quick back-and-forth switches without re-parsing.
+    const CAP: usize = 3;
+
+    /// Insert (or replace) a cached document, evicting the oldest entry when
+    /// over capacity.
+    pub fn insert_doc(&self, token: u32, doc: core::large_doc::CachedDoc) {
+        let mut docs = self.docs.lock().unwrap();
+        let mut order = self.order.lock().unwrap();
+        let fresh = !docs.contains_key(&token);
+        docs.insert(token, doc);
+        if fresh {
+            order.push_back(token);
+            while docs.len() > Self::CAP {
+                match order.pop_front() {
+                    // `token` sits at the back of a non-empty queue, so the
+                    // front can never be it; the guard just makes the bound
+                    // obvious.
+                    Some(oldest) if oldest != token => {
+                        docs.remove(&oldest);
+                    }
+                    _ => break,
+                }
+            }
+        }
+        // Prune stale tokens so the queue cannot drift from the map.
+        order.retain(|t| docs.contains_key(t));
+    }
 }
 
 /// Single-slot preview cache behind the split editor+preview view. The
@@ -73,12 +111,13 @@ pub fn run() {
         .manage(core::watch::WatchState::default())
         .manage(AppState {
             current_file: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            #[cfg(feature = "share")]
             serve: std::sync::Mutex::new(None),
             pending_open: std::sync::Mutex::new(pick_file_arg(
                 &std::env::args().collect::<Vec<_>>(),
             )),
         })
-        .manage(LargeDocStore::default())
+        .manage(std::sync::Arc::new(LargeDocStore::default()))
         .manage(PreviewState::default())
         .setup(|app| {
             let handle = app.handle();
@@ -200,53 +239,58 @@ pub fn run() {
                 .item(&mi_theme_wudang)
                 .build()?;
 
-            let mi_serve_local = MenuItem::with_id(
-                handle,
-                "serve-local",
-                "本机预览服务",
-                true,
-                None::<&str>,
-            )?;
-            let mi_serve_lan = MenuItem::with_id(
-                handle,
-                "serve-lan",
-                "局域网分享 (只读, 需防火墙授权)",
-                true,
-                None::<&str>,
-            )?;
-            let mi_serve_lan_follow = MenuItem::with_id(
-                handle,
-                "serve-lan-follow",
-                "局域网分享 (同步浏览)",
-                true,
-                None::<&str>,
-            )?;
-            let mi_serve_lan_edit = MenuItem::with_id(
-                handle,
-                "serve-lan-edit",
-                "局域网分享 (协作编辑)",
-                true,
-                None::<&str>,
-            )?;
-            let mi_serve_stop =
-                MenuItem::with_id(handle, "serve-stop", "停止分享服务", true, None::<&str>)?;
-            let mi_serve_open = MenuItem::with_id(
-                handle,
-                "serve-open",
-                "在浏览器打开分享页",
-                true,
-                None::<&str>,
-            )?;
-            let serve_menu = SubmenuBuilder::new(handle, "服务")
-                .item(&mi_serve_local)
-                .separator()
-                .item(&mi_serve_lan)
-                .item(&mi_serve_lan_follow)
-                .item(&mi_serve_lan_edit)
-                .separator()
-                .item(&mi_serve_stop)
-                .item(&mi_serve_open)
-                .build()?;
+            // The share menu (and the whole axum server behind it) only
+            // exists in `--features share` builds.
+            #[cfg(feature = "share")]
+            let serve_menu = {
+                let mi_serve_local = MenuItem::with_id(
+                    handle,
+                    "serve-local",
+                    "本机预览服务",
+                    true,
+                    None::<&str>,
+                )?;
+                let mi_serve_lan = MenuItem::with_id(
+                    handle,
+                    "serve-lan",
+                    "局域网分享 (只读, 需防火墙授权)",
+                    true,
+                    None::<&str>,
+                )?;
+                let mi_serve_lan_follow = MenuItem::with_id(
+                    handle,
+                    "serve-lan-follow",
+                    "局域网分享 (同步浏览)",
+                    true,
+                    None::<&str>,
+                )?;
+                let mi_serve_lan_edit = MenuItem::with_id(
+                    handle,
+                    "serve-lan-edit",
+                    "局域网分享 (协作编辑)",
+                    true,
+                    None::<&str>,
+                )?;
+                let mi_serve_stop =
+                    MenuItem::with_id(handle, "serve-stop", "停止分享服务", true, None::<&str>)?;
+                let mi_serve_open = MenuItem::with_id(
+                    handle,
+                    "serve-open",
+                    "在浏览器打开分享页",
+                    true,
+                    None::<&str>,
+                )?;
+                SubmenuBuilder::new(handle, "服务")
+                    .item(&mi_serve_local)
+                    .separator()
+                    .item(&mi_serve_lan)
+                    .item(&mi_serve_lan_follow)
+                    .item(&mi_serve_lan_edit)
+                    .separator()
+                    .item(&mi_serve_stop)
+                    .item(&mi_serve_open)
+                    .build()?
+            };
 
             let about_item =
                 PredefinedMenuItem::about(handle, Some("关于 Ruakdown"), None)?;
@@ -254,46 +298,78 @@ pub fn run() {
                 .item(&about_item)
                 .build()?;
 
-            let menu = MenuBuilder::new(handle)
-                .items(&[&file_menu, &view_menu, &theme_menu, &serve_menu, &help_menu])
-                .build()?;
+            let mut menus: Vec<&dyn tauri::menu::IsMenuItem<_>> =
+                vec![&file_menu, &view_menu, &theme_menu];
+            #[cfg(feature = "share")]
+            menus.push(&serve_menu);
+            menus.push(&help_menu);
+            let menu = MenuBuilder::new(handle).items(&menus).build()?;
             app.set_menu(menu)?;
             Ok(())
         })
         .on_menu_event(|app, event| {
             let _ = app.emit("menu", event.id().0.as_str());
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::pick_folder,
-            commands::pick_file,
-            commands::pick_image,
-            commands::load_tree,
-            commands::search_docs,
-            commands::open_doc,
-            commands::render_chunks,
-            commands::preview_update,
-            commands::preview_chunks,
-            commands::save_file,
-            commands::watch_folder,
-            commands::stop_watch,
-            commands::resolve_link,
-            commands::take_pending_open,
-            commands::get_config,
-            commands::save_config,
-            commands::list_themes,
-            commands::apply_theme,
-            commands::pick_export_path,
-            commands::export_html,
-            commands::set_current_file,
-            commands::set_fullscreen,
-            commands::serve_status,
-            commands::serve_start,
-            commands::serve_stop,
-            commands::serve_notify_change,
-            commands::serve_broadcast_scroll,
-            commands::serve_notice,
-            commands::serve_set_dirty,
-        ])
+        .invoke_handler({
+            #[cfg(feature = "share")]
+            {
+                tauri::generate_handler![
+                    commands::pick_folder,
+                    commands::pick_file,
+                    commands::pick_image,
+                    commands::load_tree,
+                    commands::search_docs,
+                    commands::open_doc,
+                    commands::render_chunks,
+                    commands::preview_update,
+                    commands::preview_chunks,
+                    commands::save_file,
+                    commands::watch_folder,
+                    commands::resolve_link,
+                    commands::take_pending_open,
+                    commands::get_config,
+                    commands::save_config,
+                    commands::apply_theme,
+                    commands::mermaid_asset_path,
+                    commands::pick_export_path,
+                    commands::export_html,
+                    commands::set_current_file,
+                    commands::set_fullscreen,
+                    commands::serve_start,
+                    commands::serve_stop,
+                    commands::serve_notify_change,
+                    commands::serve_broadcast_scroll,
+                    commands::serve_notice,
+                    commands::serve_set_dirty,
+                ]
+            }
+            #[cfg(not(feature = "share"))]
+            {
+                tauri::generate_handler![
+                    commands::pick_folder,
+                    commands::pick_file,
+                    commands::pick_image,
+                    commands::load_tree,
+                    commands::search_docs,
+                    commands::open_doc,
+                    commands::render_chunks,
+                    commands::preview_update,
+                    commands::preview_chunks,
+                    commands::save_file,
+                    commands::watch_folder,
+                    commands::resolve_link,
+                    commands::take_pending_open,
+                    commands::get_config,
+                    commands::save_config,
+                    commands::apply_theme,
+                    commands::mermaid_asset_path,
+                    commands::pick_export_path,
+                    commands::export_html,
+                    commands::set_current_file,
+                    commands::set_fullscreen,
+                ]
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
@@ -369,5 +445,54 @@ mod tests {
             pick_file_arg(&["exe".to_string(), first.clone(), second]),
             Some(first)
         );
+    }
+
+    #[test]
+    fn large_doc_store_evicts_oldest_beyond_cap() {
+        let store = LargeDocStore::default();
+        for token in 1..=(LargeDocStore::CAP as u32 + 2) {
+            store.insert_doc(
+                token,
+                core::large_doc::CachedDoc {
+                    chunks: Vec::new(),
+                    outline: Vec::new(),
+                    blocks: Vec::new(),
+                    reuse: None,
+                },
+            );
+        }
+        let docs = store.docs.lock().unwrap();
+        assert_eq!(docs.len(), LargeDocStore::CAP);
+        // Oldest tokens (1, 2) were evicted; the newest CAP survive.
+        assert!(!docs.contains_key(&1));
+        assert!(!docs.contains_key(&2));
+        for token in 3..=(LargeDocStore::CAP as u32 + 2) {
+            assert!(docs.contains_key(&token));
+        }
+    }
+
+    #[test]
+    fn large_doc_store_replace_does_not_evict_current() {
+        let store = LargeDocStore::default();
+        store.insert_doc(
+            1,
+            core::large_doc::CachedDoc {
+                chunks: Vec::new(),
+                outline: Vec::new(),
+                blocks: Vec::new(),
+                reuse: None,
+            },
+        );
+        // Re-opening the same document replaces the entry, never evicts it.
+        store.insert_doc(
+            1,
+            core::large_doc::CachedDoc {
+                chunks: Vec::new(),
+                outline: Vec::new(),
+                blocks: Vec::new(),
+                reuse: None,
+            },
+        );
+        assert!(store.docs.lock().unwrap().contains_key(&1));
     }
 }

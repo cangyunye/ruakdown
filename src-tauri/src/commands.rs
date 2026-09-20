@@ -1,8 +1,12 @@
-use crate::core::{config as config_store, export, file, large_doc, link, markdown, preview, search, serve, theme, watch};
+#[cfg(feature = "share")]
+use crate::core::serve;
+use crate::core::{config as config_store, export, file, large_doc, link, markdown, preview, search, theme, watch};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
+#[cfg(feature = "share")]
+use tauri::Emitter;
 use tauri_plugin_dialog::DialogExt;
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -126,7 +130,7 @@ const CHUNKED_THRESHOLD: usize = 1_000_000;
 
 #[tauri::command]
 pub async fn open_doc(
-    store: State<'_, crate::LargeDocStore>,
+    store: State<'_, Arc<crate::LargeDocStore>>,
     path: String,
 ) -> Result<DocPayload, String> {
     let p = PathBuf::from(&path);
@@ -158,12 +162,9 @@ pub async fn open_doc(
         for chunk in &mut chunks {
             chunk.html = markdown::rewrite_img_srcs(&chunk.html, base_dir.as_deref());
         }
-        let mut docs = store.docs.lock().unwrap();
-        docs.insert(
+        store.insert_doc(
             token,
             large_doc::CachedDoc {
-                path,
-                source: text.clone(),
                 chunks,
                 outline: built.outline,
                 blocks: built.blocks,
@@ -231,7 +232,7 @@ pub async fn preview_chunks(
 ) -> Result<Vec<ChunkOut>, String> {
     let store = std::sync::Arc::clone(&state.store);
     tauri::async_runtime::spawn_blocking(move || {
-        let store = store.lock().unwrap();
+        let mut store = store.lock().unwrap();
         let chunks = store.chunks(rev, start, count)?;
         Ok(chunks
             .into_iter()
@@ -243,24 +244,31 @@ pub async fn preview_chunks(
 }
 
 #[tauri::command]
-pub fn render_chunks(
-    store: State<'_, crate::LargeDocStore>,
+pub async fn render_chunks(
+    store: State<'_, Arc<crate::LargeDocStore>>,
     token: u32,
     start: u32,
     count: u32,
 ) -> Result<Vec<ChunkOut>, String> {
-    let docs = store.docs.lock().unwrap();
-    let doc = docs.get(&token).ok_or("文档未加载或已失效")?;
-    let end = (start as usize + count as usize).min(doc.chunks.len());
-    let begin = (start as usize).min(doc.chunks.len());
-    Ok(doc.chunks[begin..end]
-        .iter()
-        .enumerate()
-        .map(|(i, c)| ChunkOut {
-            index: (begin + i) as u32,
-            html: c.html.clone(),
-        })
-        .collect())
+    // Locking the store + cloning chunk HTML is off-main-thread work like
+    // every other document-serving command.
+    let store = Arc::clone(&store);
+    tauri::async_runtime::spawn_blocking(move || {
+        let docs = store.docs.lock().unwrap();
+        let doc = docs.get(&token).ok_or("文档未加载或已失效")?;
+        let end = (start as usize + count as usize).min(doc.chunks.len());
+        let begin = (start as usize).min(doc.chunks.len());
+        Ok(doc.chunks[begin..end]
+            .iter()
+            .enumerate()
+            .map(|(i, c)| ChunkOut {
+                index: (begin + i) as u32,
+                html: c.html.clone(),
+            })
+            .collect())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[derive(Debug, Serialize)]
@@ -311,15 +319,23 @@ pub fn watch_folder(
     watch::watch_folder(app, &state, Path::new(&root))
 }
 
-#[tauri::command]
-pub fn stop_watch(state: State<'_, watch::WatchState>) {
-    watch::stop_watch(&state);
-}
-
 /// Resolve a markdown link target against the document's directory.
+/// Does fs metadata probes — keep off the main thread.
 #[tauri::command]
-pub fn resolve_link(base_file: String, link: String, root: Option<String>) -> link::ResolvedLink {
-    link::resolve(Path::new(&base_file), &link, root.as_deref().map(Path::new))
+pub async fn resolve_link(
+    base_file: String,
+    link: String,
+    root: Option<String>,
+) -> Result<link::ResolvedLink, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        link::resolve(
+            Path::new(&base_file),
+            &link,
+            root.as_deref().map(Path::new),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Consume the file path carried by the launching process (double-click in
@@ -330,23 +346,23 @@ pub fn take_pending_open(state: State<'_, crate::AppState>) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn get_config(app: AppHandle) -> Result<config_store::Config, String> {
+pub async fn get_config(app: AppHandle) -> Result<config_store::Config, String> {
     let path = config_path(&app)?;
-    Ok(config_store::load(&path))
+    // Config file IO belongs off the main thread like every other command.
+    tauri::async_runtime::spawn_blocking(move || Ok(config_store::load(&path)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn save_config(
+pub async fn save_config(
     app: AppHandle,
     config: config_store::Config,
 ) -> Result<(), String> {
     let path = config_path(&app)?;
-    config_store::save(&path, &config)
-}
-
-#[tauri::command]
-pub fn list_themes() -> Vec<theme::ThemeInfo> {
-    theme::list()
+    tauri::async_runtime::spawn_blocking(move || config_store::save(&path, &config))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -360,6 +376,28 @@ pub fn apply_theme(app: AppHandle, name: String) -> Result<theme::Theme, String>
         }));
     }
     Ok(t)
+}
+
+/// Absolute path of the bundled mermaid.min.js. The webview loads it through
+/// the asset protocol (single copy — the npm mermaid dependency is gone),
+/// while export/serve read the same file directly.
+#[tauri::command]
+pub fn mermaid_asset_path(app: AppHandle) -> Result<String, String> {
+    if let Ok(dir) = app.path().resource_dir() {
+        let p = dir.join("resources/mermaid.min.js");
+        if p.is_file() {
+            return Ok(dunce::simplified(&p).to_string_lossy().into_owned());
+        }
+    }
+    // Dev fallback: `tauri dev` runs with src-tauri as the CWD and the
+    // resource dir may not carry the file there.
+    let p = std::env::current_dir()
+        .map_err(|e| e.to_string())?
+        .join("resources/mermaid.min.js");
+    if p.is_file() {
+        return Ok(dunce::simplified(&p).to_string_lossy().into_owned());
+    }
+    Err("未找到内置的 mermaid.min.js 资源".to_string())
 }
 
 // ---------- export ----------
@@ -425,21 +463,6 @@ pub async fn export_html(
     .map_err(|e| e.to_string())?
 }
 
-// ---------- share server ----------
-
-/// Production event sink: forwards remote-viewer messages to the frontend
-/// as Tauri events.
-struct AppSink(AppHandle);
-
-impl serve::RemoteEventSink for AppSink {
-    fn emit_scroll(&self, value: serde_json::Value) {
-        let _ = self.0.emit("serve-remote-scroll", value);
-    }
-    fn emit_edit(&self, value: serde_json::Value) {
-        let _ = self.0.emit("serve-remote-edit", value);
-    }
-}
-
 #[tauri::command]
 pub fn set_current_file(state: State<'_, crate::AppState>, path: Option<String>) {
     *state.current_file.lock().unwrap() = path;
@@ -462,15 +485,28 @@ pub async fn set_fullscreen(
     Ok(())
 }
 
-#[tauri::command]
-pub fn serve_status(state: State<'_, crate::AppState>) -> Option<String> {
-    state.serve.lock().unwrap().as_ref().map(|h| h.url.clone())
+// ---------- share server (compiled only with `--features share`) ----------
+
+/// Production event sink: forwards remote-viewer messages to the frontend
+/// as Tauri events.
+#[cfg(feature = "share")]
+struct AppSink(AppHandle);
+
+#[cfg(feature = "share")]
+impl serve::RemoteEventSink for AppSink {
+    fn emit_scroll(&self, value: serde_json::Value) {
+        let _ = self.0.emit("serve-remote-scroll", value);
+    }
+    fn emit_edit(&self, value: serde_json::Value) {
+        let _ = self.0.emit("serve-remote-edit", value);
+    }
 }
 
 /// (Re)start the share server with the given permission set. Restarting on
 /// every call keeps mode switches (read → follow → edit) trivial and removes
 /// the check-then-act race of the previous implementation. The URL carries a
 /// per-start token; LAN mode advertises the machine's LAN address.
+#[cfg(feature = "share")]
 #[tauri::command]
 pub async fn serve_start(
     app: AppHandle,
@@ -508,6 +544,7 @@ pub async fn serve_start(
     Ok(url)
 }
 
+#[cfg(feature = "share")]
 #[tauri::command]
 pub fn serve_stop(state: State<'_, crate::AppState>) {
     serve::stop(state.serve.lock().unwrap().take());
@@ -515,6 +552,7 @@ pub fn serve_stop(state: State<'_, crate::AppState>) {
 
 /// Tell all viewers the shared content changed (after a save or an applied
 /// remote edit). No-op when the server is not running.
+#[cfg(feature = "share")]
 #[tauri::command]
 pub fn serve_notify_change(state: State<'_, crate::AppState>) {
     if let Some(h) = state.serve.lock().unwrap().as_ref() {
@@ -523,6 +561,7 @@ pub fn serve_notify_change(state: State<'_, crate::AppState>) {
 }
 
 /// Broadcast the local reading position to every viewer (scroll sync).
+#[cfg(feature = "share")]
 #[tauri::command]
 pub fn serve_broadcast_scroll(
     state: State<'_, crate::AppState>,
@@ -543,6 +582,7 @@ pub fn serve_broadcast_scroll(
 }
 
 /// A viewer-visible notice (e.g. a rejected remote edit).
+#[cfg(feature = "share")]
 #[tauri::command]
 pub fn serve_notice(state: State<'_, crate::AppState>, text: String) {
     if let Some(h) = state.serve.lock().unwrap().as_ref() {
@@ -553,6 +593,7 @@ pub fn serve_notice(state: State<'_, crate::AppState>, text: String) {
 
 /// Mirror the local dirty flag into the server: late-joining viewers see it
 /// in /api/doc, connected ones via the broadcast below.
+#[cfg(feature = "share")]
 #[tauri::command]
 pub fn serve_set_dirty(state: State<'_, crate::AppState>, dirty: bool) {
     let handle = state.serve.lock().unwrap();

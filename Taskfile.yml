@@ -40,10 +40,16 @@ tasks:
       - pnpm install
 
   dev:
-    desc: 启动开发模式(tauri dev,Vite HMR + Rust 增量编译)
+    desc: 启动开发模式(轻量版,不含局域网分享;tauri dev,Vite HMR + Rust 增量编译)
     deps: [install]
     cmds:
       - pnpm tauri dev
+
+  "dev:share":
+    desc: 启动开发模式(全量版,--features share 含局域网分享)
+    deps: [install]
+    cmds:
+      - pnpm tauri dev --features share
 
   check:
     desc: 快速检查(前端 tsc + vite build + cargo check)
@@ -57,12 +63,14 @@ tasks:
     dir: src-tauri
     cmds:
       - cargo check
+      - cargo check --features share
 
   test:
-    desc: 运行 Rust 单元测试
+    desc: 运行 Rust 单元测试(轻量 + share 两种 feature 组合)
     dir: src-tauri
     cmds:
       - cargo test
+      - cargo test --features share
 
   bench:
     desc: 大文档渲染基准(1/5/10MB,ignored test)
@@ -73,12 +81,12 @@ tasks:
       - cargo test bench_large_document --release -- --ignored --nocapture
 
   build:
-    desc: 构建 release + 平台安装包(win→nsis / mac→dmg / linux→deb;限制并行防链接器内存不足)
+    desc: 构建 release 轻量版 + 平台安装包(win→nsis / mac→dmg / linux→deb;限制并行防链接器内存不足)
     deps: [install]
     env:
       CARGO_BUILD_JOBS: '4'
     cmds:
-      - pnpm tauri build
+      - pnpm tauri build --no-default-features
       - cmd: printf '%s\n' "安装包输出 {{.TARGET_DIR}}\release\bundle\nsis\{{.APP_NAME}}_{{.VERSION}}_x64-setup.exe"
         platforms: [windows]
         silent: true
@@ -88,6 +96,14 @@ tasks:
       - cmd: printf '%s\n' "安装包输出 {{.TARGET_DIR}}/release/bundle/deb/{{.APP_NAME}}_{{.VERSION}}_*.deb"
         platforms: [linux]
         silent: true
+
+  "build:share":
+    desc: 构建 release 全量版(--features share,含局域网分享) + 平台安装包
+    deps: [install]
+    env:
+      CARGO_BUILD_JOBS: '4'
+    cmds:
+      - pnpm tauri build --features share
 
   "build:frontend":
     desc: 仅构建前端(tsc + vite build,产物 dist/)

@@ -364,6 +364,7 @@ pub fn rewrite_img_srcs(html: &str, base: Option<&std::path::Path>) -> String {
 /// Rewrite relative `<img src="...">` references to `/static/<encoded rel>` so
 /// images resolve against the share server's static route (which serves the
 /// document directory). Absolute URLs pass through untouched.
+#[cfg(feature = "share")]
 pub fn rewrite_img_srcs_http(html: &str, base: Option<&std::path::Path>) -> String {
     // '/' stays unencoded so the path keeps its segment structure; the
     // static handler decodes it and splits on '/' again.
@@ -504,6 +505,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "share")]
     fn share_rewrite_maps_relative_imgs_to_static() {
         // Angle-bracket destination: spaces are only valid inside <> in CommonMark.
         let doc = render_markdown("![本地](<./imgs/pic 一.png>)\n\n![远程](https://x/y.png)");
@@ -518,6 +520,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "share")]
     fn share_rewrite_passthrough_without_base() {
         let doc = render_markdown("![本地](./pic.png)");
         let out = rewrite_img_srcs_http(&doc.html, None);

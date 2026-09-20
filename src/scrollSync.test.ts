@@ -1,17 +1,12 @@
 import { describe, expect, it } from "vitest";
-import {
-  blockAtLine,
-  headingOwners,
-  lockAllows,
-  type SyncBlock,
-  type SyncLock,
-} from "./scrollSync";
+import { blockAtLine, headingOwners, lockAllows, type SyncLock } from "./scrollSync";
+import type { BlockInfo } from "./ipc";
 
-function b(bi: number, startLine: number, endLine: number, headingId: string | null = null): SyncBlock {
+function b(bi: number, startLine: number, endLine: number, headingId: string | null = null): BlockInfo {
   return { bi, chunk: Math.floor(bi / 3), startLine, endLine, headingId };
 }
 
-const BLOCKS: SyncBlock[] = [
+const BLOCKS: BlockInfo[] = [
   b(0, 1, 1, "intro-1"),
   b(1, 3, 4),
   b(2, 6, 7, "section-2"),

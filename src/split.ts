@@ -1,8 +1,8 @@
 export type Mode = "read" | "edit" | "split";
 export type EditorSide = "left" | "right";
 
-export const MIN_RATIO = 0.2;
-export const MAX_RATIO = 0.8;
+const MIN_RATIO = 0.2;
+const MAX_RATIO = 0.8;
 
 /** Keep the editor pane within 20%-80% of the split area. */
 export function clampRatio(ratio: number): number {

@@ -11,8 +11,8 @@ const MAX_CHUNK_TAGS: u32 = 1500;
 /// same shape (`max-width:100%`, `max-height:60vh`), so placeholders track
 /// the real render. Both are approximations — mount-time measurement and the
 /// frontend's ResizeObserver converge the rest.
-pub const EST_CONTENT_WIDTH: u32 = 720;
-pub const EST_IMG_CAP: u32 = 480;
+const EST_CONTENT_WIDTH: u32 = 720;
+const EST_IMG_CAP: u32 = 480;
 
 /// Probes the natural dimensions of one image by its raw `<img src>` value.
 /// `None` = remote or unresolvable; the block keeps its byte-based estimate
@@ -76,11 +76,9 @@ pub struct Chunk {
     pub info: ChunkInfo,
 }
 
-/// A chunked document held in memory: the source (needed for rebuilds) plus
-/// the rendered chunks.
+/// A chunked document held in memory: rendered chunks plus the tables the
+/// frontend needs (outline, block→source map, per-block reuse cache).
 pub struct CachedDoc {
-    pub path: String,
-    pub source: String,
     pub chunks: Vec<Chunk>,
     pub outline: Vec<ChunkOutlineItem>,
     /// Block→source-line table for editor/preview scroll sync.
@@ -650,8 +648,6 @@ fn assemble(
     }
 
     CachedDoc {
-        path: String::new(),
-        source: source.to_string(),
         chunks,
         outline,
         blocks: block_infos,
@@ -662,7 +658,8 @@ fn assemble(
 /// Build the chunk index for a large document. Chunk boundaries always fall
 /// between top-level blocks; budgets target ~32KB of HTML or ~1500 tags,
 /// whichever hits first (a single oversized block becomes its own chunk).
-pub fn build(source: &str) -> CachedDoc {
+#[cfg(test)]
+fn build(source: &str) -> CachedDoc {
     assemble(source, None, false, &mut None)
 }
 

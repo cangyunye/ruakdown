@@ -1,15 +1,7 @@
-/** Mirror of the Rust `BlockInfo` table: one entry per top-level markdown
- * block, ordered by `bi` and by `startLine` (both monotonic). */
-export interface SyncBlock {
-  bi: number;
-  chunk: number;
-  startLine: number;
-  endLine: number;
-  headingId: string | null;
-}
+import type { BlockInfo } from "./ipc";
 
 /** Block containing (or nearest below) the given 1-based source line. */
-export function blockAtLine(blocks: SyncBlock[], line: number): SyncBlock | null {
+export function blockAtLine(blocks: BlockInfo[], line: number): BlockInfo | null {
   if (blocks.length === 0) return null;
   if (line <= blocks[0].startLine) return blocks[0];
   let lo = 0;
@@ -43,7 +35,7 @@ export function lockAllows(lock: SyncLock | null, source: SyncSource, now: numbe
 
 /** For each block index, the nearest heading id at or above it — used to
  * keep the sidebar outline highlighted while scrolling either pane. */
-export function headingOwners(blocks: SyncBlock[]): (string | null)[] {
+export function headingOwners(blocks: BlockInfo[]): (string | null)[] {
   const out: (string | null)[] = new Array(blocks.length);
   let current: string | null = null;
   for (let i = 0; i < blocks.length; i++) {

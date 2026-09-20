@@ -77,7 +77,11 @@ export function Reader({
   useEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
-    const onScroll = () => {
+    // rAF-coalesced: one heading scan per frame at most, even if the
+    // webview fires scroll events faster (cheap but not free on long docs).
+    let raf = 0;
+    const compute = () => {
+      raf = 0;
       const headings = el.querySelectorAll<HTMLElement>("h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]");
       let active: string | null = null;
       const threshold = el.scrollTop + 96;
@@ -87,9 +91,15 @@ export function Reader({
       }
       onActiveRef.current(active);
     };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(compute);
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
-    onScroll();
-    return () => el.removeEventListener("scroll", onScroll);
+    compute();
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [doc]);
 
   // ==mark== syntax: rerun after each render; idempotent (marks are skipped).

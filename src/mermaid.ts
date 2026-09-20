@@ -1,8 +1,57 @@
-type MermaidModule = typeof import("mermaid");
+/**
+ * Mermaid rendering against the vendored `resources/mermaid.min.js` — the
+ * same file the HTML export inlines and the LAN share page serves, so there
+ * is exactly one mermaid copy in the app (no npm dependency, no version
+ * drift). The vendored build is an esbuild IIFE that assigns
+ * `globalThis.mermaid`; we inject a classic <script> pointing at the asset
+ * protocol on first use and reuse the global afterwards.
+ */
 
-let mod: MermaidModule["default"] | null = null;
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { api } from "./ipc";
+
+/** The subset of the mermaid API this module relies on. */
+interface MermaidApi {
+  initialize(config: Record<string, unknown>): void;
+  render(id: string, source: string): Promise<{ svg: string }>;
+}
+
+declare global {
+  interface Window {
+    mermaid?: MermaidApi;
+  }
+}
+
+let loadPromise: Promise<MermaidApi> | null = null;
 let initedTheme: string | null = null;
 let renderSeq = 0;
+
+/** Inject the vendored mermaid script once; resolves with the global API. */
+function loadMermaid(): Promise<MermaidApi> {
+  if (window.mermaid) return Promise.resolve(window.mermaid);
+  loadPromise ??= (async () => {
+    const path = await api.mermaidAssetPath();
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = convertFileSrc(path);
+      script.onload = () => resolve();
+      script.onerror = () => {
+        // Allow a retry after a transient failure (e.g. resource dir not
+        // ready during dev hot reloads).
+        loadPromise = null;
+        script.remove();
+        reject(new Error("内置 mermaid.min.js 加载失败"));
+      };
+      document.head.appendChild(script);
+    });
+    if (!window.mermaid) {
+      loadPromise = null;
+      throw new Error("mermaid 全局对象缺失:脚本已加载但未挂载 window.mermaid");
+    }
+    return window.mermaid;
+  })();
+  return loadPromise;
+}
 
 // Rendered SVG cache keyed by source+theme, so evicted chunks re-mount
 // instantly when the user scrolls back.
@@ -24,11 +73,9 @@ function cacheKey(source: string, theme: string): string {
  */
 export async function renderMermaidBlocks(root: HTMLElement, dark: boolean) {
   const theme = dark ? "dark" : "default";
-  if (!mod) {
-    mod = (await import("mermaid")).default;
-  }
+  const mermaid = await loadMermaid();
   if (initedTheme !== theme) {
-    mod.initialize({
+    mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
       theme,
@@ -58,7 +105,7 @@ export async function renderMermaidBlocks(root: HTMLElement, dark: boolean) {
 
     const id = `mermaid-svg-${Date.now()}-${renderSeq++}`;
     try {
-      const { svg } = await mod.render(id, source);
+      const { svg } = await mermaid.render(id, source);
       container.innerHTML = svg;
       pre.hidden = true;
       if (svgCache.size >= CACHE_CAP) {

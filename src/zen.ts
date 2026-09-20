@@ -4,7 +4,7 @@
 export type ZenLevel = "auto" | "h1" | "h2" | "h3";
 
 const LEVEL_TAGS = ["h1", "h2", "h3"] as const;
-export type ZenTag = (typeof LEVEL_TAGS)[number];
+type ZenTag = (typeof LEVEL_TAGS)[number];
 
 /** Mark-syntax support: wrap ==text== into <mark>. Skips pre/code/checkbox
  * and existing marks, so it is safe to run repeatedly after each render. */
@@ -57,7 +57,7 @@ function countHeadings(container: HTMLElement): Record<ZenTag, number> {
 /** Resolve the heading tag to split on. "auto" picks the shallowest level
  * with at least two headings; an explicit level needs two headings too —
  * a single section would leave nothing to focus. Returns null when unusable. */
-export function resolveZenTag(container: HTMLElement, level: ZenLevel): ZenTag | null {
+function resolveZenTag(container: HTMLElement, level: ZenLevel): ZenTag | null {
   const counts = countHeadings(container);
   if (level === "auto") {
     for (const tag of LEVEL_TAGS) {
@@ -94,13 +94,13 @@ export function unwrapZenSections(container: HTMLElement): void {
   }
 }
 
-export function zenSections(container: HTMLElement): HTMLElement[] {
+function zenSections(container: HTMLElement): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(":scope > .zen-section"));
 }
 
 /** Index of the section covering `y` in container coordinates, nearest
  * otherwise. Returns -1 when there are no sections. */
-export function zenSectionAt(container: HTMLElement, y: number): number {
+function zenSectionAt(container: HTMLElement, y: number): number {
   const sections = zenSections(container);
   let best = -1;
   let bestDist = Infinity;

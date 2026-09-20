@@ -101,7 +101,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: --target ${{ matrix.target }}
+          # 发布包为全量版:--features share 携带局域网分享(默认构建是轻量版)
+          args: --target ${{ matrix.target }} --features share
           # __VERSION__ 取自 src-tauri/tauri.conf.json 的 version
           tagName: ruakdown-v__VERSION__
           releaseName: 'Ruakdown v__VERSION__'

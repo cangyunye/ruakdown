@@ -86,7 +86,7 @@ pub fn watch_folder(
     Ok(())
 }
 
-pub fn stop_watch(state: &WatchState) {
+fn stop_watch(state: &WatchState) {
     if let Some(handle) = state.handle.lock().unwrap().take() {
         handle.stop.store(true, Ordering::Relaxed);
         // Dropping the watcher drops the sender; the thread exits on disconnect.

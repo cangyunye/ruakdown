@@ -1,10 +1,10 @@
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "./ipc";
 
-export type LinkKind = "external" | "anchor" | "local";
+type LinkKind = "external" | "anchor" | "local";
 
 /** Pure routing decision for a markdown link href. */
-export function classifyLink(href: string | null | undefined): LinkKind | null {
+function classifyLink(href: string | null | undefined): LinkKind | null {
   if (!href) return null;
   const h = href.trim();
   if (!h) return null;

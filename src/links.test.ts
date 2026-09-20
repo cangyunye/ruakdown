@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { classifyLink, linkAtLine, openMarkdownLink } from "./links";
+import { linkAtLine, openMarkdownLink } from "./links";
 import { api } from "./ipc";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
@@ -16,32 +16,60 @@ const mockedOpenUrl = vi.mocked(openUrl);
 const mockedOpenPath = vi.mocked(openPath);
 const mockedResolve = vi.mocked(api.resolveLink);
 
-describe("classifyLink", () => {
-  it("routes web and mail links as external", () => {
-    expect(classifyLink("https://example.com")).toBe("external");
-    expect(classifyLink("http://example.com/a")).toBe("external");
-    expect(classifyLink("mailto:a@b.c")).toBe("external");
-    expect(classifyLink("HTTPS://EXAMPLE.COM")).toBe("external");
+describe("openMarkdownLink routing (classifyLink)", () => {
+  beforeEach(() => {
+    mockedOpenUrl.mockReset();
+    mockedOpenPath.mockReset();
+    mockedResolve.mockReset();
   });
 
-  it("routes fragment-only links as anchors", () => {
-    expect(classifyLink("#标题-1")).toBe("anchor");
-    expect(classifyLink(" #section ")).toBe("anchor");
+  it("routes web and mail links as external (browser)", async () => {
+    await openMarkdownLink("https://example.com", ctx());
+    expect(mockedOpenUrl).toHaveBeenCalledWith("https://example.com");
+    await openMarkdownLink("mailto:a@b.c", ctx());
+    expect(mockedOpenUrl).toHaveBeenCalledWith("mailto:a@b.c");
+    await openMarkdownLink("HTTPS://EXAMPLE.COM", ctx());
+    expect(mockedOpenUrl).toHaveBeenCalledTimes(3);
+    expect(mockedResolve).not.toHaveBeenCalled();
   });
 
-  it("routes everything else as local", () => {
-    expect(classifyLink("./b.md")).toBe("local");
-    expect(classifyLink("../up/c.md")).toBe("local");
-    expect(classifyLink("/abs/path.md")).toBe("local");
-    expect(classifyLink("file:///C:/doc.md")).toBe("local");
-    expect(classifyLink("b.md#frag")).toBe("local");
+  it("routes fragment-only links as anchors", async () => {
+    const scroll = vi.fn();
+    vi.stubGlobal("document", {
+      getElementById: vi.fn((id: string) => (id === "标题-1" ? { scrollIntoView: scroll } : null)),
+    });
+    try {
+      await openMarkdownLink("#%E6%A0%87%E9%A2%98-1", ctx());
+      expect(scroll).toHaveBeenCalled();
+      expect(mockedResolve).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
-  it("returns null for empty or missing hrefs", () => {
-    expect(classifyLink(null)).toBeNull();
-    expect(classifyLink(undefined)).toBeNull();
-    expect(classifyLink("")).toBeNull();
-    expect(classifyLink("   ")).toBeNull();
+  it("routes everything else as local (resolve against the open file)", async () => {
+    mockedResolve.mockResolvedValue({
+      path: "/proj/docs/b.md",
+      exists: true,
+      inRoot: true,
+      isMarkdown: true,
+    });
+    for (const href of ["./b.md", "../up/c.md", "/abs/path.md", "file:///C:/doc.md", "b.md#frag"]) {
+      const openFile = vi.fn();
+      await openMarkdownLink(href, {
+        currentFile: "/proj/docs/a.md",
+        root: "/proj",
+        openFile,
+        notify: vi.fn(),
+      });
+      expect(mockedResolve).toHaveBeenCalled();
+    }
+  });
+
+  it("does nothing for empty or missing hrefs", async () => {
+    await openMarkdownLink("", ctx());
+    expect(mockedOpenUrl).not.toHaveBeenCalled();
+    expect(mockedResolve).not.toHaveBeenCalled();
   });
 });
 

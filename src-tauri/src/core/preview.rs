@@ -3,6 +3,7 @@ use crate::core::large_doc::{self, BlockInfo, ChunkInfo, ChunkOutlineItem};
 use crate::core::markdown::{resolve_img_path, rewrite_img_srcs};
 use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
@@ -31,6 +32,12 @@ pub struct PreviewStore {
     /// Image dimension cache across rebuilds: the same picture is
     /// header-read once no matter how often the text around it changes.
     dims: DimCache,
+    /// Image-src rewriting is deterministic per (rev, chunk), but the split
+    /// view re-fetches the visible band on every scroll — serve repeats from
+    /// this cache instead of re-running the rewrite each time. Reset when
+    /// the rev moves on, so memory stays bounded by one document.
+    rendered_rev: u64,
+    rendered: HashMap<u32, String>,
 }
 
 impl PreviewStore {
@@ -62,19 +69,32 @@ impl PreviewStore {
 
     /// Chunk HTML for a given revision. Stale revisions are rejected so the
     /// frontend can drop responses that lost the latest-wins race.
-    pub fn chunks(&self, rev: u64, start: u32, count: u32) -> Result<Vec<(u32, String)>, String> {
+    pub fn chunks(&mut self, rev: u64, start: u32, count: u32) -> Result<Vec<(u32, String)>, String> {
         let doc = self.doc.as_ref().ok_or("预览尚未构建")?;
         if rev != self.rev {
             return Err("预览已过期".to_string());
         }
-        let base_dir = Path::new(&self.base_file).parent();
+        if self.rendered_rev != rev {
+            self.rendered_rev = rev;
+            self.rendered.clear();
+        }
+        let base_dir = Path::new(&self.base_file).parent().map(Path::to_path_buf);
         let end = (start as usize + count as usize).min(doc.chunks.len());
         let begin = (start as usize).min(doc.chunks.len());
-        Ok(doc.chunks[begin..end]
-            .iter()
-            .enumerate()
-            .map(|(i, c)| ((begin + i) as u32, rewrite_img_srcs(&c.html, base_dir)))
-            .collect())
+        let mut out = Vec::with_capacity((end - begin).max(0));
+        for (i, c) in doc.chunks[begin..end].iter().enumerate() {
+            let index = (begin + i) as u32;
+            let html = match self.rendered.get(&index) {
+                Some(cached) => cached.clone(),
+                None => {
+                    let rewritten = rewrite_img_srcs(&c.html, base_dir.as_deref());
+                    self.rendered.insert(index, rewritten.clone());
+                    rewritten
+                }
+            };
+            out.push((index, html));
+        }
+        Ok(out)
     }
 
     fn meta(&self) -> PreviewMeta {
@@ -132,5 +152,21 @@ mod tests {
         assert_eq!(meta.chunk_count, 0);
         assert_eq!(meta.blocks.len(), 0);
         assert_eq!(store.chunks(meta.rev, 0, 1).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn chunk_refetch_serves_identical_html_from_cache() {
+        let mut store = PreviewStore::default();
+        let meta = store.update(DOC, "/tmp/a.md");
+        let first = store.chunks(meta.rev, 0, 10).unwrap();
+        // Second fetch for the same rev goes through the rewrite cache: the
+        // output must be byte-identical.
+        let second = store.chunks(meta.rev, 0, 10).unwrap();
+        assert_eq!(first, second);
+        // A new rev invalidates the cache but still renders correctly.
+        let next = store.update(&DOC.replace("第一段", "改动"), "/tmp/a.md");
+        assert_ne!(next.rev, meta.rev);
+        let rebuilt = store.chunks(next.rev, 0, 10).unwrap();
+        assert!(rebuilt.iter().all(|(i, _)| *i == 0));
     }
 }

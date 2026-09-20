@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type SearchFileResult, type SearchOutcome } from "../ipc";
 
 interface SearchModalProps {
@@ -17,6 +17,42 @@ interface FileGroup {
   file: SearchFileResult;
   hits: Array<FlatHit & { index: number }>;
 }
+
+interface HitRowProps {
+  hit: FlatHit & { index: number };
+  selected: boolean;
+  selectedRef: React.RefObject<HTMLButtonElement | null>;
+  query: string;
+  caseSensitive: boolean;
+  onHover: (index: number) => void;
+  onOpen: (hit: FlatHit & { index: number }) => void;
+}
+
+/** Memoized row: hovering the list flips `selected` on two rows only, so a
+ * 300-result modal no longer re-renders every row per mousemove. */
+const HitRow = memo(function HitRow({
+  hit,
+  selected,
+  selectedRef,
+  query,
+  caseSensitive,
+  onHover,
+  onOpen,
+}: HitRowProps) {
+  return (
+    <button
+      ref={selected ? selectedRef : undefined}
+      className={"search-hit" + (selected ? " selected" : "")}
+      onMouseEnter={() => onHover(hit.index)}
+      onClick={() => onOpen(hit)}
+    >
+      <span className="search-hit-ln">{hit.line}</span>
+      <span className="search-hit-text">
+        <Highlighted text={hit.text} query={query} caseSensitive={caseSensitive} />
+      </span>
+    </button>
+  );
+});
 
 /** Split text into plain / <mark> segments so matching keywords stand out
  * without touching innerHTML. */
@@ -175,6 +211,13 @@ export default function SearchModal({ root, onClose, onOpenHit }: SearchModalPro
     }
   };
 
+  // Stable row callbacks so memoized rows only re-render on real changes.
+  const hoverRow = useCallback((index: number) => setSelected(index), []);
+  const openRow = useCallback(
+    (hit: FlatHit & { index: number }) => onOpenHit(hit.file.path, trimmed, hit.line),
+    [onOpenHit, trimmed],
+  );
+
   const onInputKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -247,22 +290,16 @@ export default function SearchModal({ root, onClose, onOpenHit }: SearchModalPro
                   <div className="search-hits-cap">该文件匹配较多,仅显示前 {PER_FILE_HIT_CAP} 条</div>
                 )}
                 {hits.map((hit) => (
-                  <button
+                  <HitRow
                     key={hit.index}
-                    ref={hit.index === selected ? selectedRef : undefined}
-                    className={"search-hit" + (hit.index === selected ? " selected" : "")}
-                    onMouseEnter={() => setSelected(hit.index)}
-                    onClick={() => onOpenHit(hit.file.path, trimmed, hit.line)}
-                  >
-                    <span className="search-hit-ln">{hit.line}</span>
-                    <span className="search-hit-text">
-                      <Highlighted
-                        text={hit.text}
-                        query={trimmed}
-                        caseSensitive={caseSensitive}
-                      />
-                    </span>
-                  </button>
+                    hit={hit}
+                    selected={hit.index === selected}
+                    selectedRef={selectedRef}
+                    query={trimmed}
+                    caseSensitive={caseSensitive}
+                    onHover={hoverRow}
+                    onOpen={openRow}
+                  />
                 ))}
               </div>
             ))}

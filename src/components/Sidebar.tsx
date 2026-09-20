@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { FileTree } from "./FileTree";
 import { Outline } from "./Outline";
 import type { OutlineItem, TreeNode } from "../ipc";
@@ -16,7 +17,10 @@ interface Props {
   onJump: (id: string) => void;
 }
 
-export function Sidebar(props: Props) {
+/** Memoized: App re-renders on every keystroke and scroll tick, but the
+ * sidebar only depends on tree/outline/active state — all stable between
+ * real changes, so unrelated renders stop here. */
+export const Sidebar = memo(function Sidebar(props: Props) {
   return (
     <aside className="sidebar">
       <div className="sidebar-tabs">
@@ -55,4 +59,4 @@ export function Sidebar(props: Props) {
       </div>
     </aside>
   );
-}
+});

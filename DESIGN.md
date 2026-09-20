@@ -43,7 +43,7 @@
 
 收益:前端零解析器依赖(省 ~50KB+),预览/导出/外部访问三者渲染结果**必然一致**,单一维护点。
 
-前端唯一承担的渲染是 **Mermaid**:识别 `mermaid` 代码块,动态 `import()` mermaid 12 渲染 SVG(按需加载,无 mermaid 的文档不加载 ~1MB chunk)。Rust 只负责在渲染时给 mermaid 代码块打上标记 class。
+前端唯一承担的渲染是 **Mermaid**:识别 `mermaid` 代码块,首次遇到时通过 asset 协议注入打包在 `resources/mermaid.min.js` 的全局构建(esbuild IIFE,挂 `window.mermaid`)再渲染——与导出/分享页共用同一份文件,无 npm mermaid 依赖、无版本漂移,主 bundle 不含 mermaid。Rust 只负责在渲染时给 mermaid 代码块打上标记 class。
 
 大纲(标题树)由 Rust 在渲染时一并提取(H1–H6 + 锚点 id),随 HTML 一起返回。
 
@@ -92,8 +92,9 @@ CSS 变量驱动,主题 JSON 由 Rust 管理(打包进 `resources/themes/`):
 ### 3. HTML 导出(`export.rs`)
 - 同管线渲染 + 内联主题 CSS + `mermaid.min.js` 可选内嵌(离线打开图形完整);图片可选 base64 内嵌或保持相对链接。
 
-### 4. 内嵌 Serve(`serve.rs`)
+### 4. 内嵌 Serve(`serve.rs`,cargo feature `share`)
 - `axum 0.8` + tokio,独立任务,与 Tauri 解耦;菜单/命令启停。
+- **双编译**:axum/tokio 为 optional 依赖,挂在 `share` feature 下。默认构建为轻量版(无服务、无「服务」菜单、相关命令不注册);`--features share` 编出全量版(CI 发布包)。前端零改动:分享入口只来自原生菜单(轻量版不存在),其余调用点均被 `serveUrl` 守卫或吞掉 reject。
 - 路由:`GET /` 预览页(静态)、`GET /api/doc`(渲染 HTML + 大纲)、静态资源(图片/附件)。
 - 默认绑定 `127.0.0.1`,端口可配;开启 `0.0.0.0` 需手动,UI 提示 **Windows 防火墙将弹窗授权**。
 

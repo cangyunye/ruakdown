@@ -19,7 +19,7 @@
 - **阅读优先** — 三档视图「阅读 / 分屏 / 源码」。渲染由 Rust 侧 `pulldown-cmark` 完成,阅读视图、导出 HTML、局域网分享页共用同一条管线,结果必然一致。
 - **大文档可读** — 超过 1MB 自动切分块虚拟化渲染(按需挂载 + DOM 驱逐),快速滚动流畅;源码与预览块级双向滚动同步。
 - **编码与换行不破坏** — 逐文件保持原编码(UTF-8 / BOM / UTF-16 / GBK)与换行风格(CRLF / LF)。
-- **可分享** — 内置 axum 服务:本机预览,或局域网三档权限分享(只读 / 同步浏览 / 协作编辑),访问令牌鉴权,分享页离线可用。
+- **可分享**(可选) — 内置 axum 服务:本机预览,或局域网三档权限分享(只读 / 同步浏览 / 协作编辑),访问令牌鉴权,分享页离线可用。发布安装包为全量版;本地默认构建为不含分享的轻量版,`--features share` 启用。
 - **阅读增强** — 大纲导航与滚动高亮、Mermaid、代码语法高亮、`==高亮==`、图片悬停放大与灯箱、专注模式(Zen)、目录内全文搜索。
 - **外观** — 10 款内置主题、阅读区背景图(纸面实色 / 半透明毛玻璃)。
 - **桌面集成** — `.md` 文件关联、单实例、双击打开、会话恢复、离线单文件 HTML 导出。
@@ -49,10 +49,10 @@ Intel Mac 与 Linux 暂无预编译包,需从源码构建。macOS 未做代码�
 
 ```sh
 task doctor     # 检查工具链
-task dev        # 开发模式(tauri dev)
-task test       # Rust 单元测试
+task dev        # 开发模式(轻量版,不含分享;task dev:share 为全量版)
+task test       # Rust 单元测试(轻量 + share 两种 feature 组合)
 task check      # 前端构建 + cargo check
-task build      # release + 平台安装包
+task build      # release 轻量版 + 平台安装包(task build:share 为全量版)
 ```
 
 前端测试用 `pnpm test`(vitest)。推送 `v*` tag 触发 CI 构建并发布安装包,Release 说明自动取自 CHANGELOG 对应版本段落。

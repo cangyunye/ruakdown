@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { OutlineItem } from "../ipc";
 
 interface Props {
@@ -6,7 +7,7 @@ interface Props {
   onJump: (id: string) => void;
 }
 
-export function Outline({ items, activeId, onJump }: Props) {
+export const Outline = memo(function Outline({ items, activeId, onJump }: Props) {
   if (items.length === 0) {
     return <div className="pane-empty">本文档没有标题</div>;
   }
@@ -26,4 +27,4 @@ export function Outline({ items, activeId, onJump }: Props) {
       ))}
     </ul>
   );
-}
+});

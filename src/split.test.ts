@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   clampRatio,
   flipSide,
-  MAX_RATIO,
-  MIN_RATIO,
   nextEditorText,
   nextMode,
   normalizeRatio,
@@ -13,8 +11,8 @@ import {
 describe("clampRatio", () => {
   it("keeps values inside the 20%-80% band", () => {
     expect(clampRatio(0.5)).toBe(0.5);
-    expect(clampRatio(0.05)).toBe(MIN_RATIO);
-    expect(clampRatio(0.95)).toBe(MAX_RATIO);
+    expect(clampRatio(0.05)).toBe(0.2);
+    expect(clampRatio(0.95)).toBe(0.8);
   });
 
   it("falls back to 50% for garbage input", () => {
@@ -33,7 +31,7 @@ describe("normalize helpers", () => {
 
   it("normalizes the stored ratio", () => {
     expect(normalizeRatio(0.7)).toBe(0.7);
-    expect(normalizeRatio(3)).toBe(MAX_RATIO);
+    expect(normalizeRatio(3)).toBe(0.8);
     expect(normalizeRatio(null)).toBe(0.5);
     expect(normalizeRatio("0.4")).toBe(0.5);
   });

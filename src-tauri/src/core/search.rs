@@ -87,7 +87,14 @@ fn search_file(
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let name_match = match_in(&name, needle, case_sensitive);
+    let name_lower;
+    let name_hay = if case_sensitive {
+        name.as_str()
+    } else {
+        name_lower = name.to_lowercase();
+        name_lower.as_str()
+    };
+    let name_match = name_hay.contains(needle);
     let mut hits = Vec::new();
 
     for (idx, line) in file_text.text.lines().enumerate() {
@@ -97,13 +104,23 @@ fn search_file(
             }
             break;
         }
-        if !match_in(line, needle, case_sensitive) {
+        // Case-fold once per line and reuse the folded copy for both the
+        // match test and the clip window (the old code lowered the same line
+        // up to three times per hit).
+        let lower;
+        let hay = if case_sensitive {
+            line
+        } else {
+            lower = line.to_lowercase();
+            lower.as_str()
+        };
+        if !hay.contains(needle) {
             continue;
         }
         outcome.total_hits += 1;
         hits.push(SearchHit {
             line: (idx + 1) as u32,
-            text: clip_line(line, needle, case_sensitive),
+            text: clip_line(line, hay, needle),
         });
     }
 
@@ -118,36 +135,22 @@ fn search_file(
     })
 }
 
-fn match_in(hay: &str, needle: &str, case_sensitive: bool) -> bool {
-    if case_sensitive {
-        hay.contains(needle)
-    } else {
-        hay.to_lowercase().contains(needle)
-    }
+/// Char index of the first match within the (already folded) `hay`.
+fn match_char_index(hay: &str, needle: &str) -> Option<usize> {
+    let byte_idx = hay.find(needle)?;
+    Some(hay[..byte_idx].chars().count())
 }
 
-/// Char index of the first match, for display-window math. Case-folding can
-/// shift byte offsets, so clipping works purely in char space.
-fn find_char_index(line: &str, needle: &str, case_sensitive: bool) -> Option<usize> {
-    let byte_idx = if case_sensitive {
-        line.find(needle)?
-    } else {
-        line.to_lowercase().find(needle)?
-    };
-    Some(line[..byte_idx].chars().count())
-}
-
-/// Keep long lines readable: clip to a window around the first match.
-fn clip_line(line: &str, needle: &str, case_sensitive: bool) -> String {
+/// Keep long lines readable: clip `line` to a window around the first
+/// match. The window position comes from the folded copy — case-folding can
+/// shift byte offsets, so the folded index is only an approximation for
+/// display purposes (and never slices the original mid-char).
+fn clip_line(line: &str, hay: &str, needle: &str) -> String {
     let char_count = line.chars().count();
     if char_count <= MAX_SNIPPET_CHARS {
         return line.to_string();
     }
-    let Some(match_char) = find_char_index(line, needle, case_sensitive) else {
-        // Name-only match or edge case: keep the head.
-        let head: String = line.chars().take(MAX_SNIPPET_CHARS).collect();
-        return format!("{head}…");
-    };
+    let match_char = match_char_index(hay, needle).unwrap_or(0).min(char_count);
     let start = match_char.saturating_sub(80);
     let end = (start + MAX_SNIPPET_CHARS).min(char_count);
     let snippet: String = line.chars().skip(start).take(end - start).collect();
@@ -254,9 +257,18 @@ mod tests {
     fn long_lines_are_clipped_around_match() {
         // Match sits far from both ends, so the clip window cuts both sides.
         let long = format!("{}性能优化{}", "x".repeat(300), "y".repeat(500));
-        let clipped = clip_line(&long, "性能优化", false);
+        let clipped = clip_line(&long, &long.to_lowercase(), "性能优化");
         assert!(clipped.chars().count() <= MAX_SNIPPET_CHARS + 2);
         assert!(clipped.contains("性能优化"));
         assert!(clipped.starts_with('…') && clipped.ends_with('…'));
+    }
+
+    #[test]
+    fn folding_that_shrinks_bytes_never_panics() {
+        // U+1E9E (capital sharp s) folds to fewer bytes than the original;
+        // the clip window must not slice the original line mid-char.
+        let line = format!("ẞ{}", "y".repeat(500));
+        let clipped = clip_line(&line, &line.to_lowercase(), "y");
+        assert!(clipped.contains('y'));
     }
 }

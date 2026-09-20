@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { TreeNode } from "../ipc";
 
 interface Props {
@@ -7,7 +7,11 @@ interface Props {
   onOpenFile: (path: string) => void;
 }
 
-export function FileTree({ nodes, activeFile, onOpenFile }: Props) {
+/** Memoized all the way down: App re-renders on every keystroke/scroll tick,
+ * but as long as the tree data and callbacks keep their identity (they do —
+ * rescans replace `tree` only when the debounced refresh fires), the whole
+ * recursion is pruned from the render. */
+export const FileTree = memo(function FileTree({ nodes, activeFile, onOpenFile }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const toggle = (path: string) => {
@@ -59,4 +63,4 @@ export function FileTree({ nodes, activeFile, onOpenFile }: Props) {
       )}
     </ul>
   );
-}
+});

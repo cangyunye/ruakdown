@@ -1,13 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ThemeInfo {
-    pub id: String,
-    pub name: String,
-    pub dark: bool,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Theme {
     pub name: String,
@@ -26,7 +19,8 @@ const PLUM_WINE: &str = include_str!("../../resources/themes/plum-wine.json");
 const MOUNTAIN_STREAM: &str = include_str!("../../resources/themes/mountain-stream.json");
 const WUDANG: &str = include_str!("../../resources/themes/wudang.json");
 
-pub const BUILTIN_IDS: &[&str] = &[
+#[cfg(test)]
+const BUILTIN_IDS: &[&str] = &[
     "light",
     "dark",
     "graphite",
@@ -38,13 +32,6 @@ pub const BUILTIN_IDS: &[&str] = &[
     "mountain-stream",
     "wudang",
 ];
-
-pub fn list() -> Vec<ThemeInfo> {
-    BUILTIN_IDS
-        .iter()
-        .filter_map(|id| get(id).map(|t| ThemeInfo { id: id.to_string(), name: t.name, dark: t.dark }))
-        .collect()
-}
 
 pub fn get(id: &str) -> Option<Theme> {
     let raw = match id {
@@ -100,7 +87,7 @@ mod tests {
 
     #[test]
     fn builtin_themes_parse() {
-        assert_eq!(list().len(), 10);
+        assert_eq!(BUILTIN_IDS.len(), 10);
         assert!(get("dark").unwrap().dark);
         assert!(!get("light").unwrap().dark);
         assert!(get("dark").unwrap().vars.contains_key("--bg"));

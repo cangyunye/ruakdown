@@ -113,11 +113,8 @@ function applyBackground(cfg: ResolvedBg): void {
       "--reader-bg-image",
       `url("${convertFileSrc(cfg.path!)}")`,
     );
-    root.style.setProperty("--reader-bg-blur", `${cfg.blur ?? 0}px`);
-    root.style.setProperty(
-      "--reader-bg-overlay",
-      String((cfg.overlay ?? 80) / 100),
-    );
+    root.style.setProperty("--reader-bg-blur", `${cfg.blur}px`);
+    root.style.setProperty("--reader-bg-overlay", String(cfg.overlay / 100));
   } else {
     root.style.removeProperty("--reader-bg-image");
     root.style.removeProperty("--reader-bg-blur");
@@ -231,8 +228,6 @@ export default function App() {
     mode,
     doc,
     serveUrl,
-    servePort,
-    autosaveOn,
     bg,
     zenCfg,
     editorSide,
@@ -245,8 +240,6 @@ export default function App() {
     mode,
     doc,
     serveUrl,
-    servePort,
-    autosaveOn,
     bg,
     zenCfg,
     editorSide,
@@ -692,9 +685,9 @@ export default function App() {
   }, []);
 
   const openServe = useCallback(async () => {
-    const url = stateRef.current.serveUrl ?? serveUrl;
+    const url = stateRef.current.serveUrl;
     if (url) await openUrl(url);
-  }, [serveUrl]);
+  }, []);
 
   // Link navigation inside markdown (preview click / Ctrl+click in source):
   // web → browser, md → open in app (folder tree untouched), other local
@@ -1037,15 +1030,25 @@ export default function App() {
   // see decideFsChange; real changes prompt via the overlay banner when
   // there are unsaved edits, or reload silently otherwise).
   useEffect(() => {
-    const unlisten = listen<{ paths: string[] }>("fs-change", async (event) => {
+    // Watcher events arrive in bursts (an autosave trips tmp+rename; an
+    // external batch touches many files). A trailing debounce collapses
+    // each burst into one directory rescan.
+    let treeTimer: number | null = null;
+    const refreshTree = (rootDir: string) => {
+      if (treeTimer != null) window.clearTimeout(treeTimer);
+      treeTimer = window.setTimeout(() => {
+        treeTimer = null;
+        api
+          .loadTree(rootDir)
+          .then(setTree)
+          .catch(() => {
+            /* folder may have been removed; keep last tree */
+          });
+      }, 600);
+    };
+    const unlisten = listen<{ paths: string[] }>("fs-change", (event) => {
       const s = stateRef.current;
-      if (s.root) {
-        try {
-          setTree(await api.loadTree(s.root));
-        } catch {
-          /* folder may have been removed; keep last tree */
-        }
-      }
+      if (s.root) refreshTree(s.root);
       const decision = decideFsChange({
         paths: event.payload.paths,
         currentFile: s.currentFile,
@@ -1058,17 +1061,20 @@ export default function App() {
         if (decision === "prompt") setExternalChange(true);
         return;
       }
-      try {
-        const d = await api.openDoc(s.currentFile!);
-        setDoc(d);
-        editTextRef.current = d.text;
-        setExternalChange(false);
-      } catch {
-        /* file may be mid-write; next event will refresh */
-      }
+      void api
+        .openDoc(s.currentFile!)
+        .then((d) => {
+          setDoc(d);
+          editTextRef.current = d.text;
+          setExternalChange(false);
+        })
+        .catch(() => {
+          /* file may be mid-write; next event will refresh */
+        });
     });
     return () => {
       unlisten.then((fn) => fn());
+      if (treeTimer != null) window.clearTimeout(treeTimer);
     };
   }, []);
 

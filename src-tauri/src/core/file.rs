@@ -77,7 +77,7 @@ fn collect(dir: &Path, depth: u8, dirs: &mut Vec<TreeNode>, files: &mut Vec<Tree
 }
 
 /// Dot-dirs and known build/system dirs are excluded from all traversal.
-pub fn should_skip_dir(name: &str) -> bool {
+fn should_skip_dir(name: &str) -> bool {
     name.starts_with('.') || SKIP_DIRS.contains(&name)
 }
 
@@ -173,7 +173,7 @@ fn decode(bytes: Vec<u8>) -> (String, &'static str) {
     }
 }
 
-pub fn detect_eol(text: &str) -> &'static str {
+fn detect_eol(text: &str) -> &'static str {
     if text.contains("\r\n") {
         "crlf"
     } else if text.contains('\r') {
@@ -183,17 +183,50 @@ pub fn detect_eol(text: &str) -> &'static str {
     }
 }
 
+/// Rewrite every newline (`\r\n`, `\r`, `\n`) to `newline` in a single pass.
+/// One allocation, unlike the old normalize-then-replace double sweep.
+fn apply_eol(text: &str, newline: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\r' | b'\n' => {
+                if bytes[i] == b'\r' && bytes.get(i + 1) == Some(&b'\n') {
+                    i += 1;
+                }
+                out.push_str(newline);
+                i += 1;
+            }
+            _ => {
+                // Bulk-copy up to the next newline; \r and \n are ASCII and
+                // can never occur inside a multi-byte UTF-8 sequence, so the
+                // slice boundaries stay on char boundaries.
+                let end = bytes[i..]
+                    .iter()
+                    .position(|&b| b == b'\r' || b == b'\n')
+                    .map_or(bytes.len(), |p| i + p);
+                out.push_str(&text[i..end]);
+                i = end;
+            }
+        }
+    }
+    out
+}
+
 /// Write text back preserving the file's original encoding and line-ending
-/// style. Normalizes all newlines to LF first, then re-applies the target EOL.
+/// style. All newlines are rewritten to the target EOL in one pass.
 /// Writes to `<path>.tmp` and renames, so a crash mid-write never truncates
 /// the original file. Returns the number of bytes written.
 pub fn write_text(path: &Path, text: &str, encoding: &str, eol: &str) -> std::io::Result<usize> {
-    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-    let with_eol = match eol {
-        "crlf" => normalized.replace('\n', "\r\n"),
-        "cr" => normalized.replace('\n', "\r"),
-        _ => normalized,
-    };
+    let with_eol = apply_eol(
+        text,
+        match eol {
+            "crlf" => "\r\n",
+            "cr" => "\r",
+            _ => "\n",
+        },
+    );
     let bytes: Vec<u8> = match encoding {
         "utf-8-bom" => {
             let mut b = Vec::with_capacity(with_eol.len() + 3);
@@ -266,6 +299,16 @@ mod tests {
         assert_eq!(detect_eol("a\r\nb"), "crlf");
         assert_eq!(detect_eol("a\nb"), "lf");
         assert_eq!(detect_eol("a\rb"), "cr");
+    }
+
+    #[test]
+    fn apply_eol_normalizes_every_newline_variant() {
+        let mixed = "a\r\nb\rc\nd\r\n\r\n中文\r断行";
+        assert_eq!(apply_eol(mixed, "\n"), "a\nb\nc\nd\n\n中文\n断行");
+        assert_eq!(apply_eol(mixed, "\r\n"), "a\r\nb\r\nc\r\nd\r\n\r\n中文\r\n断行");
+        assert_eq!(apply_eol(mixed, "\r"), "a\rb\rc\rd\r\r中文\r断行");
+        assert_eq!(apply_eol("", "\r\n"), "");
+        assert_eq!(apply_eol("\r\n", "\n"), "\n");
     }
 
     #[test]

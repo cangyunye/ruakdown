@@ -25,6 +25,11 @@ export function attachImageZoom(container: HTMLElement): () => void {
   document.body.appendChild(box);
 
   let active: HTMLImageElement | null = null;
+  // Hover-layer size cached when the zoom starts: the layer has explicit
+  // px sizing, so re-reading offsetWidth/Height on every mousemove would
+  // force a layout per event for nothing.
+  let hoverW = 10;
+  let hoverH = 10;
 
   const hideHover = () => {
     active = null;
@@ -41,15 +46,18 @@ export function attachImageZoom(container: HTMLElement): () => void {
 
   const positionHover = (e: MouseEvent) => {
     if (!active) return;
-    const w = hoverImg.offsetWidth || 10;
-    const h = hoverImg.offsetHeight || 10;
     let x = e.clientX + 18;
     let y = e.clientY + 18;
-    if (x + w > window.innerWidth - 8) x = e.clientX - w - 18;
-    if (y + h > window.innerHeight - 8) y = e.clientY - h - 18;
+    if (x + hoverW > window.innerWidth - 8) x = e.clientX - hoverW - 18;
+    if (y + hoverH > window.innerHeight - 8) y = e.clientY - hoverH - 18;
     hover.style.left = `${Math.max(8, x)}px`;
     hover.style.top = `${Math.max(8, y)}px`;
   };
+
+  // mousemove fires faster than frames; coalesce to one position pass per
+  // frame instead of forcing style work per event.
+  let moveRaf = 0;
+  let lastMove: MouseEvent | null = null;
 
   const onOver = (e: MouseEvent) => {
     const el = (e.target as HTMLElement | null)?.closest("img") as HTMLImageElement | null;
@@ -72,13 +80,23 @@ export function attachImageZoom(container: HTMLElement): () => void {
       const { width, height } = fit(el, window.innerWidth * 0.5, window.innerHeight * 0.6);
       hoverImg.style.width = `${width}px`;
       hoverImg.style.height = `${height}px`;
+      hoverW = width;
+      hoverH = height;
       hover.classList.add("on");
     }
     positionHover(e);
   };
 
   const onMove = (e: MouseEvent) => {
-    if (active) positionHover(e);
+    if (!active) return;
+    lastMove = e;
+    if (!moveRaf) {
+      moveRaf = requestAnimationFrame(() => {
+        moveRaf = 0;
+        if (lastMove) positionHover(lastMove);
+        lastMove = null;
+      });
+    }
   };
 
   const onClick = (e: MouseEvent) => {
@@ -120,6 +138,7 @@ export function attachImageZoom(container: HTMLElement): () => void {
     container.removeEventListener("scroll", hideOnScroll);
     box.removeEventListener("click", onBoxClick);
     window.removeEventListener("keydown", onKey, true);
+    if (moveRaf) cancelAnimationFrame(moveRaf);
     hideHover();
     closeBox();
     hover.remove();

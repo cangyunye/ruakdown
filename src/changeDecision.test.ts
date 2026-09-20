@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { decideFsChange, type FsChangeInput } from "./changeDecision";
+import { decideFsChange } from "./changeDecision";
+
+// Structural alias from the (unexported) input type — keeps the test honest
+// without forcing changeDecision to export internals.
+type FsChangeInput = Parameters<typeof decideFsChange>[0];
 
 const FILE = "/proj/docs/a.md";
 
