@@ -1,5 +1,5 @@
 use tauri::{
-    menu::{MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder},
+    menu::{AboutMetadata, MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder},
     Emitter, Manager,
 };
 
@@ -292,10 +292,36 @@ pub fn run() {
                     .build()?
             };
 
-            let about_item =
-                PredefinedMenuItem::about(handle, Some("关于 Ruakdown"), None)?;
+            let about_item = PredefinedMenuItem::about(
+                handle,
+                Some("关于 Ruakdown"),
+                Some(AboutMetadata {
+                    name: Some("Ruakdown".into()),
+                    // From the app package info, so it always matches the
+                    // released version (tauri.conf.json `version`).
+                    version: Some(handle.package_info().version.to_string()),
+                    ..Default::default()
+                }),
+            )?;
+            let mi_repo = MenuItem::with_id(
+                handle,
+                "open-repo",
+                "GitHub 仓库",
+                true,
+                None::<&str>,
+            )?;
+            let mi_releases = MenuItem::with_id(
+                handle,
+                "open-releases",
+                "检查更新 (Releases)...",
+                true,
+                None::<&str>,
+            )?;
             let help_menu = SubmenuBuilder::new(handle, "帮助")
                 .item(&about_item)
+                .separator()
+                .item(&mi_repo)
+                .item(&mi_releases)
                 .build()?;
 
             let mut menus: Vec<&dyn tauri::menu::IsMenuItem<_>> =

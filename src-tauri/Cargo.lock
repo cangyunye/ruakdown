@@ -3139,7 +3139,7 @@ dependencies = [
 
 [[package]]
 name = "ruakdown"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "axum",
  "dunce",

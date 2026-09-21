@@ -1105,6 +1105,22 @@ html.split-resizing * {
   margin-top: 16px;
 }
 
+.empty-links {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.empty-links a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.empty-links a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
 .primary-btn {
   padding: 8px 20px;
   border: 1px solid var(--accent);

@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
@@ -73,6 +74,11 @@ const THEME_LABELS: Record<string, string> = {
   "mountain-stream": "高山流水",
   wudang: "论道武当",
 };
+
+/** Project home and release feed, opened from the settings modal and the
+ * empty state. Releases carry the prebuilt installers (update channel). */
+const REPO_URL = "https://github.com/cangyunye/ruakdown";
+const RELEASES_URL = `${REPO_URL}/releases`;
 
 /** BackgroundConfig with all optional fields resolved to concrete values. */
 type ResolvedBg = {
@@ -174,6 +180,7 @@ export default function App() {
   const [zenCfg, setZenCfg] = useState<ResolvedZen>(DEFAULT_ZEN);
   const [zenPos, setZenPos] = useState<{ idx: number; total: number } | null>(null);
   const [fullscreenOn, setFullscreenOn] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
   const [editorSide, setEditorSide] = useState<EditorSide>("left");
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [previewMeta, setPreviewMeta] = useState<PreviewMeta | null>(null);
@@ -689,6 +696,22 @@ export default function App() {
     if (url) await openUrl(url);
   }, []);
 
+  // About entries: project repo and the releases page (the update channel —
+  // installers are published there; overwrite-install keeps all settings).
+  const openExternal = useCallback(async (url: string) => {
+    try {
+      await openUrl(url);
+    } catch (err) {
+      setError("无法在浏览器打开链接: " + String(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => setAppVersion(""));
+  }, []);
+
   // Link navigation inside markdown (preview click / Ctrl+click in source):
   // web → browser, md → open in app (folder tree untouched), other local
   // files → system default app.
@@ -763,6 +786,12 @@ export default function App() {
         break;
       case "serve-open":
         void openServe();
+        break;
+      case "open-repo":
+        void openExternal(REPO_URL);
+        break;
+      case "open-releases":
+        void openExternal(RELEASES_URL);
         break;
     }
   };
@@ -1420,6 +1449,27 @@ export default function App() {
                   打开文件
                 </button>
               </div>
+              <div className="empty-links">
+                <a
+                  href={REPO_URL}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void openExternal(REPO_URL);
+                  }}
+                >
+                  GitHub 仓库
+                </a>
+                <span>·</span>
+                <a
+                  href={RELEASES_URL}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void openExternal(RELEASES_URL);
+                  }}
+                >
+                  Releases 更新
+                </a>
+              </div>
             </div>
           )}
         </div>
@@ -1562,6 +1612,29 @@ export default function App() {
             </p>
             <p className="setting-hint">
               端口修改后,下次启动预览服务生效。当前主题:{THEME_LABELS[themeName]}
+            </p>
+            <div className="setting-divider">关于与更新</div>
+            <div className="setting-row">
+              <span>Ruakdown{appVersion ? ` v${appVersion}` : ""}</span>
+              <span className="setting-controls">
+                <button
+                  className="tool-btn"
+                  onClick={() => void openExternal(REPO_URL)}
+                  title="在浏览器打开项目仓库"
+                >
+                  GitHub 仓库
+                </button>
+                <button
+                  className="tool-btn"
+                  onClick={() => void openExternal(RELEASES_URL)}
+                  title="打开 Releases 页下载最新安装包"
+                >
+                  检查更新 (Releases)
+                </button>
+              </span>
+            </div>
+            <p className="setting-hint">
+              更新经 GitHub Releases 发布:下载最新安装包覆盖安装即可,配置与设置均保留。
             </p>
             <div className="modal-actions">
               <button className="primary-btn" onClick={() => setSettingsOpen(false)}>
