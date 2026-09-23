@@ -53,6 +53,8 @@ pub struct Config {
     pub background: Option<BackgroundConfig>,
     pub zen: Option<ZenConfig>,
     pub split: Option<SplitConfig>,
+    /// Recently opened file paths (most recent first, max 15).
+    pub recent_files: Option<Vec<String>>,
 }
 
 pub fn load(path: &Path) -> Config {

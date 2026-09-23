@@ -30,7 +30,8 @@ import {
 import type { ZenController, ZenLevel } from "./zen";
 import { Sidebar, type SidebarTab } from "./components/Sidebar";
 import { Reader } from "./components/Reader";
-import SearchModal from "./components/SearchModal";
+import QuickOpen from "./components/QuickOpen";
+import { upsertRecent } from "./quickOpen";
 import ChunkedReader, { type ChunkedReaderHandle } from "./components/ChunkedReader";
 import SplitView from "./components/SplitView";
 import PreviewPane, { type PreviewPaneHandle } from "./components/PreviewPane";
@@ -174,7 +175,9 @@ export default function App() {
   const [followRemote, setFollowRemote] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickContent, setQuickContent] = useState(false);
+  const [recentFiles, setRecentFiles] = useState<string[]>([]);
   const [findOpen, setFindOpen] = useState(false);
   const [findShowReplace, setFindShowReplace] = useState(false);
   const [findFocusNonce, setFindFocusNonce] = useState(0);
@@ -195,6 +198,8 @@ export default function App() {
   zenPosRef.current = zenPos;
   const zenCtlRef = useRef<ZenController | null>(null);
   const readerWrapRef = useRef<HTMLDivElement | null>(null);
+  const recentFilesRef = useRef<string[]>([]);
+  recentFilesRef.current = recentFiles;
   const previewMetaRef = useRef<PreviewMeta | null>(null);
   previewMetaRef.current = previewMeta;
   // A chord can fire from both the native menu accelerator and the webview
@@ -513,13 +518,24 @@ export default function App() {
         await api.setCurrentFile(path);
         // Share viewers follow the open document; announce the switch.
         void api.serveNotifyChange().catch(() => {});
-        persist({ lastFile: path });
+        const nextRecent = upsertRecent(path, recentFilesRef.current);
+        recentFilesRef.current = nextRecent;
+        setRecentFiles(nextRecent);
+        persist({ lastFile: path, recentFiles: nextRecent });
         if (stateRef.current.mode === "split") {
           syncTargetBiRef.current = 0;
           refreshPreview(true);
         }
       } catch (err) {
         setError("打开文件失败: " + String(err));
+        // Drop a history entry that points at a file that is now gone, so it
+        // stops resurfacing in Quick Open.
+        const next = recentFilesRef.current.filter((p) => p !== path);
+        if (next.length !== recentFilesRef.current.length) {
+          recentFilesRef.current = next;
+          setRecentFiles(next);
+          persist({ recentFiles: next });
+        }
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
@@ -549,7 +565,7 @@ export default function App() {
   // positioning.
   const handleSearchHit = useCallback(
     async (path: string, query: string, line?: number) => {
-      setSearchOpen(false);
+      setQuickOpen(false);
       await openFile(path);
       const mode = stateRef.current.mode;
       if (mode === "split") {
@@ -747,6 +763,12 @@ export default function App() {
 
   const closeFind = useCallback(() => setFindOpen(false), []);
 
+  /** Quick Open modal; `content` starts it in workspace content-search mode. */
+  const openQuickOpen = useCallback((content: boolean) => {
+    setQuickContent(content);
+    setQuickOpen(true);
+  }, []);
+
   /** SourceEditor hands us its search bridge for the panel. */
   const handleEditorViewReady = useCallback((search: SourceSearch) => setSourceSearch(search), []);
   const handleEditorViewDestroy = useCallback(() => setSourceSearch(null), []);
@@ -766,7 +788,10 @@ export default function App() {
         void chooseFile();
         break;
       case "search-dir":
-        fireOnce("search", () => setSearchOpen(true));
+        fireOnce("search", () => openQuickOpen(true));
+        break;
+      case "quick-open":
+        fireOnce("quick-open", () => openQuickOpen(false));
         break;
       case "find":
         fireOnce("find", () => openFind(false));
@@ -936,7 +961,7 @@ export default function App() {
 
   // Zen keyboard navigation: Esc exits, ←/→ (or j/k) jump between sections.
   useEffect(() => {
-    if (!zenOn || mode !== "read" || searchOpen || findOpen || settingsOpen) return;
+    if (!zenOn || mode !== "read" || quickOpen || findOpen || settingsOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setZenOn(false);
@@ -953,7 +978,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [zenOn, mode, searchOpen, findOpen, settingsOpen]);
+  }, [zenOn, mode, quickOpen, findOpen, settingsOpen]);
 
   // Global shortcuts, handled in the capture phase so they win over the
   // focused editor (CodeMirror) and stay identical on every platform. This
@@ -967,15 +992,22 @@ export default function App() {
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
-      // Search: Ctrl/Cmd+Shift+F.
+      // Workspace content search: Ctrl/Cmd+Shift+F.
       if (mod && e.shiftKey && key === "f") {
         e.preventDefault();
         e.stopPropagation();
-        fireOnce("search", () => setSearchOpen(true));
+        fireOnce("search", () => openQuickOpen(true));
+        return;
+      }
+      // Quick Open: Ctrl/Cmd+P (intercepted from the webview print dialog).
+      if (mod && !e.shiftKey && key === "p") {
+        e.preventDefault();
+        e.stopPropagation();
+        fireOnce("quick-open", () => openQuickOpen(false));
         return;
       }
       // Zen: Ctrl/Cmd+Shift+Z (would otherwise trigger editor redo).
-      if (mod && e.shiftKey && key === "z" && !searchOpen && !settingsOpen) {
+      if (mod && e.shiftKey && key === "z" && !quickOpen && !settingsOpen) {
         e.preventDefault();
         e.stopPropagation();
         fireOnce("zen", () => void toggleZen());
@@ -1012,13 +1044,13 @@ export default function App() {
         e.preventDefault();
         e.stopPropagation();
         const s = stateRef.current;
-        if (s.doc && !searchOpen && !settingsOpen) {
+        if (s.doc && !quickOpen && !settingsOpen) {
           fireOnce("mode", () => void switchMode(nextMode(s.mode)));
         }
         return;
       }
       // Esc exits fullscreen; zen/search/settings consume their own Esc first.
-      if (e.key === "Escape" && fullscreenOn && !zenOn && !searchOpen && !findOpen && !settingsOpen) {
+      if (e.key === "Escape" && fullscreenOn && !zenOn && !quickOpen && !findOpen && !settingsOpen) {
         e.preventDefault();
         e.stopPropagation();
         void toggleFullscreen();
@@ -1026,7 +1058,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, fullscreenOn, zenOn, searchOpen, findOpen, settingsOpen, openFind]);
+  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, fullscreenOn, zenOn, quickOpen, findOpen, settingsOpen, openFind]);
 
   // The reader gutters (left/right of the centered 860px body) belong to the
   // overflow-hidden wrapper, so the wheel hits a dead zone there — forward it
@@ -1064,6 +1096,10 @@ export default function App() {
           setServePort(cfg.servePort);
         }
         if (cfg.autosave != null) setAutosaveOn(cfg.autosave);
+        if (cfg.recentFiles) {
+          setRecentFiles(cfg.recentFiles);
+          recentFilesRef.current = cfg.recentFiles;
+        }
         if (cfg.background) {
           const merged = normalizeBg(cfg.background);
           setBg(merged);
@@ -1553,10 +1589,17 @@ export default function App() {
         </div>
       </div>
 
-      {searchOpen && (
-        <SearchModal
+      {quickOpen && (
+        <QuickOpen
           root={root}
-          onClose={() => setSearchOpen(false)}
+          recent={recentFiles}
+          tree={tree}
+          initialContent={quickContent}
+          onClose={() => setQuickOpen(false)}
+          onOpenFile={(path) => {
+            setQuickOpen(false);
+            void openFile(path);
+          }}
           onOpenHit={handleSearchHit}
         />
       )}

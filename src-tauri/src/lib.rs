@@ -141,6 +141,13 @@ pub fn run() {
                 .quit()
                 .build()?;
 
+            let mi_quick_open = MenuItem::with_id(
+                handle,
+                "quick-open",
+                "快速打开...",
+                true,
+                Some("CmdOrCtrl+P"),
+            )?;
             let mi_search = MenuItem::with_id(
                 handle,
                 "search-dir",
@@ -196,6 +203,7 @@ pub fn run() {
                 fullscreen_accel,
             )?;
             let view_menu = SubmenuBuilder::new(handle, "视图")
+                .item(&mi_quick_open)
                 .item(&mi_find)
                 .item(&mi_replace)
                 .item(&mi_search)

@@ -108,6 +108,8 @@ export interface AppConfig {
   background: BackgroundConfig | null;
   zen: ZenConfig | null;
   split: SplitConfig | null;
+  /** Recently opened file paths (most recent first, max 15). */
+  recentFiles?: string[] | null;
 }
 
 export interface Theme {
