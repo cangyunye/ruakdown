@@ -407,9 +407,14 @@ const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function PreviewPane(
 
     // Same-rev meta objects are re-serves of an unchanged build (e.g. a
     // mode flip or a redundant previewUpdate): the mounted chunks are still
-    // valid, so skip the teardown/rebuild and the fetch storm it triggers.
+    // valid, so keep them — but re-attach the scroll listener the previous
+    // cleanup removed.
     if (!resetScroll && meta.rev === lastRevRef.current) {
-      return;
+      sc.addEventListener("scroll", onScroll, { passive: true });
+      return () => {
+        st.current.disposed = true;
+        sc.removeEventListener("scroll", onScroll);
+      };
     }
     lastRevRef.current = meta.rev;
 
@@ -454,7 +459,6 @@ const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function PreviewPane(
       st.current.disposed = true;
       sc.removeEventListener("scroll", onScroll);
       if (st.current.raf != null) cancelAnimationFrame(st.current.raf);
-      inner.innerHTML = "";
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meta, docKey]);

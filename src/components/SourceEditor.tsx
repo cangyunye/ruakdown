@@ -6,6 +6,7 @@ import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/lang
 import { markdown } from "@codemirror/lang-markdown";
 import { tags as t } from "@lezer/highlight";
 import { linkAtLine } from "../links";
+import { createSourceSearch, searchStateField, type SourceSearch } from "../sourceSearch";
 
 /** Imperative access for the split view's scroll sync. */
 export interface SourceEditorHandle {
@@ -26,6 +27,10 @@ interface Props {
   onScroll?: () => void;
   /** Ctrl/Cmd+clicked a [text](url) span in the source. */
   onOpenLink?: (href: string) => void;
+  /** Fires with the live EditorView once it is created (search panel). */
+  onViewReady?: (search: SourceSearch) => void;
+  /** Fires just before the view is destroyed so the parent can drop its ref. */
+  onViewDestroy?: () => void;
 }
 
 const highlightStyle = HighlightStyle.define([
@@ -79,7 +84,7 @@ const editorTheme = EditorView.theme({
 });
 
 const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor(
-  { initialText, text, onChange, onSave, onScroll, onOpenLink },
+  { initialText, text, onChange, onSave, onScroll, onOpenLink, onViewReady, onViewDestroy },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -93,6 +98,10 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
   onScrollRef.current = onScroll;
   const onOpenLinkRef = useRef(onOpenLink);
   onOpenLinkRef.current = onOpenLink;
+  const onViewReadyRef = useRef(onViewReady);
+  onViewReadyRef.current = onViewReady;
+  const onViewDestroyRef = useRef(onViewDestroy);
+  onViewDestroyRef.current = onViewDestroy;
 
   useImperativeHandle(ref, () => ({
     getTopLine: () => {
@@ -140,6 +149,7 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
             },
           ]),
           keymap.of([...defaultKeymap, ...historyKeymap]),
+          searchStateField,
           indentUnit.of("    "),
           markdown(),
           EditorView.lineWrapping,
@@ -174,10 +184,12 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
     viewRef.current = view;
     const handleScroll = () => onScrollRef.current?.();
     view.scrollDOM.addEventListener("scroll", handleScroll, { passive: true });
+    onViewReadyRef.current?.(createSourceSearch(view));
     return () => {
       view.scrollDOM.removeEventListener("scroll", handleScroll);
       view.destroy();
       viewRef.current = null;
+      onViewDestroyRef.current?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

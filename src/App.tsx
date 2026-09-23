@@ -34,7 +34,9 @@ import SearchModal from "./components/SearchModal";
 import ChunkedReader, { type ChunkedReaderHandle } from "./components/ChunkedReader";
 import SplitView from "./components/SplitView";
 import PreviewPane, { type PreviewPaneHandle } from "./components/PreviewPane";
+import SearchPanel from "./components/SearchPanel";
 import type { SourceEditorHandle } from "./components/SourceEditor";
+import type { SourceSearch } from "./sourceSearch";
 
 const SourceEditor = lazy(() => import("./components/SourceEditor"));
 
@@ -173,6 +175,11 @@ export default function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findShowReplace, setFindShowReplace] = useState(false);
+  const [findFocusNonce, setFindFocusNonce] = useState(0);
+  const [sourceSearch, setSourceSearch] = useState<SourceSearch | null>(null);
+  const [docVersion, setDocVersion] = useState(0);
   const [autosaveOn, setAutosaveOn] = useState(true);
   const [servePort, setServePort] = useState(SERVE_PORT);
   const [bg, setBg] = useState<ResolvedBg>(DEFAULT_BG);
@@ -362,6 +369,7 @@ export default function App() {
     (text: string) => {
       markDirty(text);
       refreshPreview(false);
+      setDocVersion((v) => v + 1);
     },
     [markDirty, refreshPreview],
   );
@@ -728,6 +736,21 @@ export default function App() {
     [openFile],
   );
 
+  // In-document find/replace panel. `replace` expands the replace row; in
+  // read mode replace is unavailable and it degrades to plain find.
+  const openFind = useCallback((replace: boolean) => {
+    if (!stateRef.current.doc) return;
+    setFindShowReplace(replace && stateRef.current.mode !== "read");
+    setFindOpen(true);
+    setFindFocusNonce((v) => v + 1);
+  }, []);
+
+  const closeFind = useCallback(() => setFindOpen(false), []);
+
+  /** SourceEditor hands us its search bridge for the panel. */
+  const handleEditorViewReady = useCallback((search: SourceSearch) => setSourceSearch(search), []);
+  const handleEditorViewDestroy = useCallback(() => setSourceSearch(null), []);
+
   // Latest handlers for native menu events.
   const menuRouteRef = useRef<(id: string) => void>(() => {});
   menuRouteRef.current = (id: string) => {
@@ -744,6 +767,12 @@ export default function App() {
         break;
       case "search-dir":
         fireOnce("search", () => setSearchOpen(true));
+        break;
+      case "find":
+        fireOnce("find", () => openFind(false));
+        break;
+      case "replace":
+        fireOnce("replace", () => openFind(true));
         break;
       case "save":
         void saveDoc();
@@ -907,7 +936,7 @@ export default function App() {
 
   // Zen keyboard navigation: Esc exits, ←/→ (or j/k) jump between sections.
   useEffect(() => {
-    if (!zenOn || mode !== "read" || searchOpen || settingsOpen) return;
+    if (!zenOn || mode !== "read" || searchOpen || findOpen || settingsOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setZenOn(false);
@@ -924,7 +953,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [zenOn, mode, searchOpen, settingsOpen]);
+  }, [zenOn, mode, searchOpen, findOpen, settingsOpen]);
 
   // Global shortcuts, handled in the capture phase so they win over the
   // focused editor (CodeMirror) and stay identical on every platform. This
@@ -959,6 +988,25 @@ export default function App() {
         fireOnce("fullscreen", () => void toggleFullscreen());
         return;
       }
+      // In-document find/replace. Ctrl+R is remapped from the webview reload
+      // (F5 reloads instead); Ctrl/Cmd+Shift+F stays the workspace search.
+      if (mod && !e.shiftKey && key === "f" && !(e.metaKey && e.ctrlKey)) {
+        e.preventDefault();
+        e.stopPropagation();
+        fireOnce("find", () => openFind(false));
+        return;
+      }
+      if (mod && !e.shiftKey && key === "r") {
+        e.preventDefault();
+        e.stopPropagation();
+        fireOnce("replace", () => openFind(true));
+        return;
+      }
+      if (e.key === "F5") {
+        e.preventDefault();
+        location.reload();
+        return;
+      }
       // View mode cycle: Ctrl+Tab (Cmd+Tab belongs to the OS).
       if (e.ctrlKey && e.key === "Tab") {
         e.preventDefault();
@@ -970,7 +1018,7 @@ export default function App() {
         return;
       }
       // Esc exits fullscreen; zen/search/settings consume their own Esc first.
-      if (e.key === "Escape" && fullscreenOn && !zenOn && !searchOpen && !settingsOpen) {
+      if (e.key === "Escape" && fullscreenOn && !zenOn && !searchOpen && !findOpen && !settingsOpen) {
         e.preventDefault();
         e.stopPropagation();
         void toggleFullscreen();
@@ -978,7 +1026,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, fullscreenOn, zenOn, searchOpen, settingsOpen]);
+  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, fullscreenOn, zenOn, searchOpen, findOpen, settingsOpen, openFind]);
 
   // The reader gutters (left/right of the centered 860px body) belong to the
   // overflow-hidden wrapper, so the wheel hits a dead zone there — forward it
@@ -1212,19 +1260,6 @@ export default function App() {
               </button>
             </div>
           )}
-          <button className="tool-btn" onClick={chooseFolder} title="打开文件夹">
-            打开文件夹
-          </button>
-          <button className="tool-btn" onClick={chooseFile} title="打开文件">
-            打开文件
-          </button>
-          <button
-            className="tool-btn"
-            onClick={() => setSearchOpen(true)}
-            title={`目录内搜索 (${MOD_KEY}+Shift+F)`}
-          >
-            搜索
-          </button>
           {doc && !doc.chunked && (
             <button
               className={`tool-btn${zenOn ? " active" : ""}`}
@@ -1319,6 +1354,19 @@ export default function App() {
                       onOpenLink={handleOpenLink}
                     />
                   )}
+                  {findOpen && (
+                    <SearchPanel
+                      mode={mode}
+                      source={null}
+                      docText={doc.text}
+                      docVersion={docVersion}
+                      showReplace={findShowReplace}
+                      onShowReplace={setFindShowReplace}
+                      onClose={closeFind}
+                      readWrap={readerWrapRef}
+                      focusNonce={findFocusNonce}
+                    />
+                  )}
                 </div>
               ) : mode === "split" ? (
                 <SplitView
@@ -1338,8 +1386,23 @@ export default function App() {
                           onSave={saveDoc}
                           onScroll={handleEditorScroll}
                           onOpenLink={handleOpenLink}
+                          onViewReady={handleEditorViewReady}
+                          onViewDestroy={handleEditorViewDestroy}
                         />
                       </Suspense>
+                      {findOpen && (
+                        <SearchPanel
+                          mode={mode}
+                          source={sourceSearch}
+                          docText={doc.text}
+                          docVersion={docVersion}
+                          showReplace={findShowReplace}
+                          onShowReplace={setFindShowReplace}
+                          onClose={closeFind}
+                          readWrap={readerWrapRef}
+                          focusNonce={findFocusNonce}
+                        />
+                      )}
                     </div>
                   }
                   preview={
@@ -1371,8 +1434,23 @@ export default function App() {
                       onChange={handleEditorChange}
                       onSave={saveDoc}
                       onOpenLink={handleOpenLink}
+                      onViewReady={handleEditorViewReady}
+                      onViewDestroy={handleEditorViewDestroy}
                     />
                   </Suspense>
+                  {findOpen && (
+                    <SearchPanel
+                      mode={mode}
+                      source={sourceSearch}
+                      docText={doc.text}
+                      docVersion={docVersion}
+                      showReplace={findShowReplace}
+                      onShowReplace={setFindShowReplace}
+                      onClose={closeFind}
+                      readWrap={readerWrapRef}
+                      focusNonce={findFocusNonce}
+                    />
+                  )}
                 </div>
               )}
               {!fullscreenOn && (

@@ -148,6 +148,20 @@ pub fn run() {
                 true,
                 Some("CmdOrCtrl+Shift+F"),
             )?;
+            let mi_find = MenuItem::with_id(
+                handle,
+                "find",
+                "查找...",
+                true,
+                Some("CmdOrCtrl+F"),
+            )?;
+            let mi_replace = MenuItem::with_id(
+                handle,
+                "replace",
+                "替换...",
+                true,
+                Some("CmdOrCtrl+R"),
+            )?;
             let mi_mode_read =
                 MenuItem::with_id(handle, "mode-read", "阅读视图", true, None::<&str>)?;
             let mi_mode_split =
@@ -182,6 +196,8 @@ pub fn run() {
                 fullscreen_accel,
             )?;
             let view_menu = SubmenuBuilder::new(handle, "视图")
+                .item(&mi_find)
+                .item(&mi_replace)
                 .item(&mi_search)
                 .separator()
                 .item(&mi_mode_read)
