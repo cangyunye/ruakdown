@@ -9,6 +9,7 @@ import {
 import { api, type PreviewMeta } from "../ipc";
 import { renderMermaidBlocks } from "../mermaid";
 import { attachImageZoom } from "../imgZoom";
+import { clampSyncTarget } from "../scrollSync";
 
 export interface PreviewPaneHandle {
   /** Align the block's top with the viewport top (fetching its chunk first). */
@@ -450,7 +451,7 @@ const PreviewPane = forwardRef<PreviewPaneHandle, Props>(function PreviewPane(
     // placeholders at this point, so this lands on an estimate and refines
     // once the target chunk mounts (pendingBi).
     if (meta.blocks.length > 0) {
-      const bi = Math.min(Math.max(0, syncTargetRef.current), meta.blocks.length - 1);
+      const bi = clampSyncTarget(syncTargetRef.current, meta.blocks.length);
       scrollToBlock(bi);
     }
     update();

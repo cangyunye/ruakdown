@@ -17,7 +17,8 @@ import { applyTheme } from "./theme";
 import { scrollToText } from "./jumpToText";
 import { openMarkdownLink } from "./links";
 import { decideFsChange, type SelfSaveMark } from "./changeDecision";
-import { blockAtLine, headingOwners, lockAllows, SYNC_LOCK_MS, type SyncLock } from "./scrollSync";
+import { blockAtLine, headingOwners, lockAllows, nextSyncTarget, SYNC_LOCK_MS, type SyncLock } from "./scrollSync";
+import { matchShortcut } from "./shortcuts";
 import {
   flipSide,
   nextEditorText,
@@ -397,7 +398,7 @@ export default function App() {
       if (!ed || !m || !pv || m.blocks.length === 0) return;
       const block = blockAtLine(m.blocks, ed.getTopLine());
       if (!block) return;
-      syncTargetBiRef.current = block.bi;
+      syncTargetBiRef.current = nextSyncTarget(block.bi);
       pv.scrollToBlock(block.bi);
       syncLockRef.current = { source: "editor", until: now + SYNC_LOCK_MS };
       setActiveHeading(headingOwnerMap[block.bi] ?? null);
@@ -409,6 +410,13 @@ export default function App() {
   const handlePreviewTopBi = useCallback(
     (bi: number) => {
       const m = previewMetaRef.current;
+      // The preview's top block becomes the rebuild sync target. The editor
+      // path updates it on editor scrolls; without this, an edit made right
+      // after scrolling only the preview (the editor's follow is suppressed
+      // by the 150ms echo lock, so it never reports its position) would
+      // rebuild the preview re-anchored to the editor's stale target — the
+      // document top.
+      syncTargetBiRef.current = nextSyncTarget(bi);
       setActiveHeading(headingOwnerMap[bi] ?? null);
       // Share viewers follow the preview position while serving in
       // follow/edit mode; paused briefly after a remote-driven scroll.
@@ -782,10 +790,10 @@ export default function App() {
     }
     switch (id) {
       case "open-folder":
-        void chooseFolder();
+        fireOnce("open-folder", () => void chooseFolder());
         break;
       case "open-file":
-        void chooseFile();
+        fireOnce("open-file", () => void chooseFile());
         break;
       case "search-dir":
         fireOnce("search", () => openQuickOpen(true));
@@ -959,106 +967,79 @@ export default function App() {
     );
   }, [zenOn, zenCfg]);
 
-  // Zen keyboard navigation: Esc exits, ←/→ (or j/k) jump between sections.
-  useEffect(() => {
-    if (!zenOn || mode !== "read" || quickOpen || findOpen || settingsOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setZenOn(false);
-        return;
-      }
-      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft" && e.key !== "j" && e.key !== "k") {
-        return;
-      }
-      const ctl = zenCtlRef.current;
-      if (!ctl) return;
-      const current = zenPosRef.current?.idx ?? 0;
-      ctl.jumpTo(e.key === "ArrowRight" || e.key === "j" ? current + 1 : current - 1);
-      e.preventDefault();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [zenOn, mode, quickOpen, findOpen, settingsOpen]);
-
   // Global shortcuts, handled in the capture phase so they win over the
   // focused editor (CodeMirror) and stay identical on every platform. This
-  // is the primary path for search/zen on Windows, where native menu
-  // accelerators do not fire while the webview has focus.
+  // is the primary path on Windows, where native menu accelerators do not
+  // fire while the webview has focus — without it Ctrl+O / Ctrl+Shift+O /
+  // Ctrl+E (and the older search/zen chords) would silently do nothing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      // IME composition (Chinese IMEs report key "Process") and held-key
-      // repeats must never re-trigger chords.
-      if (e.isComposing || e.repeat) return;
-      const mod = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
-
-      // Workspace content search: Ctrl/Cmd+Shift+F.
-      if (mod && e.shiftKey && key === "f") {
-        e.preventDefault();
-        e.stopPropagation();
-        fireOnce("search", () => openQuickOpen(true));
-        return;
-      }
-      // Quick Open: Ctrl/Cmd+P (intercepted from the webview print dialog).
-      if (mod && !e.shiftKey && key === "p") {
-        e.preventDefault();
-        e.stopPropagation();
-        fireOnce("quick-open", () => openQuickOpen(false));
-        return;
-      }
-      // Zen: Ctrl/Cmd+Shift+Z (would otherwise trigger editor redo).
-      if (mod && e.shiftKey && key === "z" && !quickOpen && !settingsOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        fireOnce("zen", () => void toggleZen());
-        return;
-      }
-      // Fullscreen: F11 everywhere; Ctrl+Cmd+F follows the macOS convention.
-      if (e.key === "F11" || (e.metaKey && e.ctrlKey && key === "f")) {
-        e.preventDefault();
-        e.stopPropagation();
-        fireOnce("fullscreen", () => void toggleFullscreen());
-        return;
-      }
-      // In-document find/replace. Ctrl+R is remapped from the webview reload
-      // (F5 reloads instead); Ctrl/Cmd+Shift+F stays the workspace search.
-      if (mod && !e.shiftKey && key === "f" && !(e.metaKey && e.ctrlKey)) {
-        e.preventDefault();
-        e.stopPropagation();
-        fireOnce("find", () => openFind(false));
-        return;
-      }
-      if (mod && !e.shiftKey && key === "r") {
-        e.preventDefault();
-        e.stopPropagation();
-        fireOnce("replace", () => openFind(true));
-        return;
-      }
-      if (e.key === "F5") {
-        e.preventDefault();
-        location.reload();
-        return;
-      }
-      // View mode cycle: Ctrl+Tab (Cmd+Tab belongs to the OS).
-      if (e.ctrlKey && e.key === "Tab") {
-        e.preventDefault();
-        e.stopPropagation();
-        const s = stateRef.current;
-        if (s.doc && !quickOpen && !settingsOpen) {
-          fireOnce("mode", () => void switchMode(nextMode(s.mode)));
-        }
-        return;
-      }
-      // Esc exits fullscreen; zen/search/settings consume their own Esc first.
-      if (e.key === "Escape" && fullscreenOn && !zenOn && !quickOpen && !findOpen && !settingsOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        void toggleFullscreen();
+      const action = matchShortcut(e, {
+        quickOpen,
+        findOpen,
+        settingsOpen,
+        zenOn,
+        fullscreenOn,
+        hasDoc: !!stateRef.current.doc,
+        mode: stateRef.current.mode,
+      });
+      if (!action) return;
+      e.preventDefault();
+      e.stopPropagation();
+      switch (action) {
+        case "search":
+          fireOnce("search", () => openQuickOpen(true));
+          break;
+        case "quick-open":
+          fireOnce("quick-open", () => openQuickOpen(false));
+          break;
+        case "zen":
+          fireOnce("zen", () => void toggleZen());
+          break;
+        case "fullscreen":
+          fireOnce("fullscreen", () => void toggleFullscreen());
+          break;
+        case "find":
+          fireOnce("find", () => openFind(false));
+          break;
+        case "replace":
+          fireOnce("replace", () => openFind(true));
+          break;
+        case "reload":
+          location.reload();
+          break;
+        case "mode-cycle":
+          fireOnce("mode", () => void switchMode(nextMode(stateRef.current.mode)));
+          break;
+        case "open-folder":
+          fireOnce("open-folder", () => void chooseFolder());
+          break;
+        case "open-file":
+          fireOnce("open-file", () => void chooseFile());
+          break;
+        case "save":
+          fireOnce("save", () => void saveDoc());
+          break;
+        case "export-html":
+          fireOnce("export-html", () => void exportHtml());
+          break;
+        case "zen-next":
+          zenCtlRef.current?.jumpTo((zenPosRef.current?.idx ?? 0) + 1);
+          break;
+        case "zen-prev":
+          zenCtlRef.current?.jumpTo((zenPosRef.current?.idx ?? 0) - 1);
+          break;
+        case "zen-exit":
+          setZenOn(false);
+          break;
+        case "exit-fullscreen":
+          void toggleFullscreen();
+          break;
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, fullscreenOn, zenOn, quickOpen, findOpen, settingsOpen, openFind]);
+  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, openQuickOpen, openFind, chooseFolder, chooseFile, saveDoc, exportHtml, fullscreenOn, zenOn, quickOpen, findOpen, settingsOpen]);
 
   // The reader gutters (left/right of the centered 860px body) belong to the
   // overflow-hidden wrapper, so the wheel hits a dead zone there — forward it

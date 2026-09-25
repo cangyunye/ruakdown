@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockAtLine, headingOwners, lockAllows, type SyncLock } from "./scrollSync";
+import { blockAtLine, clampSyncTarget, headingOwners, lockAllows, nextSyncTarget, type SyncLock } from "./scrollSync";
 import type { BlockInfo } from "./ipc";
 
 function b(bi: number, startLine: number, endLine: number, headingId: string | null = null): BlockInfo {
@@ -76,5 +76,37 @@ describe("headingOwners", () => {
   it("yields nulls before the first heading", () => {
     const owners = headingOwners([b(0, 1, 2), b(1, 4, 5, "h-1")]);
     expect(owners).toEqual([null, "h-1"]);
+  });
+});
+
+describe("nextSyncTarget", () => {
+  it("adopts the preview's top block after a preview-only scroll", () => {
+    // Document opened, editor never scrolled → the target is the first block.
+    let target = 0;
+    // The user reads by scrolling ONLY the preview down to block 30. The
+    // editor's follow-scroll is suppressed by the 150ms echo lock, so no
+    // editor report arrives to overwrite the target — the preview's report
+    // must. Before the fix this stayed 0, so the next edit-driven rebuild
+    // snapped the preview back to the document top.
+    target = nextSyncTarget(30);
+    expect(target).toBe(30);
+  });
+
+  it("lets a later editor report override the preview target", () => {
+    let target = nextSyncTarget(30);
+    target = nextSyncTarget(45);
+    expect(target).toBe(45);
+  });
+});
+
+describe("clampSyncTarget", () => {
+  it("keeps the target inside the rebuilt block table", () => {
+    expect(clampSyncTarget(30, 60)).toBe(30);
+    expect(clampSyncTarget(-5, 60)).toBe(0);
+    expect(clampSyncTarget(99, 60)).toBe(59);
+  });
+
+  it("falls back to the first block when the document is empty", () => {
+    expect(clampSyncTarget(30, 0)).toBe(0);
   });
 });

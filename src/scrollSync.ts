@@ -45,3 +45,22 @@ export function headingOwners(blocks: BlockInfo[]): (string | null)[] {
   }
   return out;
 }
+
+/** The block that must sit at the preview top after the next rebuild.
+ * Both panes report their viewport top — the editor maps its top source line
+ * to a block, the preview reports its own `data-bi` anchor. The preview's
+ * report must be honored too: without it, an edit made right after scrolling
+ * only the preview (whose editor follow-scroll is suppressed by the echo
+ * lock) would rebuild the preview re-anchored to the editor's stale target —
+ * usually the document top. */
+export function nextSyncTarget(reported: number): number {
+  return reported;
+}
+
+/** Clamp a sync target into a rebuilt preview's block table. PreviewPane
+ * re-anchors to the target after every preview update, so the index must be
+ * valid even when the edit shrank or regrew the document. */
+export function clampSyncTarget(target: number, blockCount: number): number {
+  if (blockCount <= 0) return 0;
+  return Math.min(Math.max(0, target), blockCount - 1);
+}
