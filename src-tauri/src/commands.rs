@@ -1,12 +1,14 @@
 #[cfg(feature = "share")]
 use crate::core::serve;
-use crate::core::{config as config_store, export, file, large_doc, link, markdown, preview, search, theme, watch};
+use crate::core::{
+    config as config_store, export, file, large_doc, link, markdown, preview, search, theme, watch,
+};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
 #[cfg(feature = "share")]
 use tauri::Emitter;
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -24,11 +26,9 @@ fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
 #[tauri::command]
 pub async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
     let (tx, rx) = std::sync::mpsc::channel();
-    app.dialog()
-        .file()
-        .pick_folder(move |fp| {
-            let _ = tx.send(fp.map(|f| f.into_path()).transpose());
-        });
+    app.dialog().file().pick_folder(move |fp| {
+        let _ = tx.send(fp.map(|f| f.into_path()).transpose());
+    });
     let picked: Option<PathBuf> = tauri::async_runtime::spawn_blocking(move || {
         rx.recv()
             .map_err(|_| "dialog closed".to_string())?
@@ -216,11 +216,9 @@ pub async fn preview_update(
     base_file: String,
 ) -> Result<preview::PreviewMeta, String> {
     let store = std::sync::Arc::clone(&state.store);
-    tauri::async_runtime::spawn_blocking(move || {
-        store.lock().unwrap().update(&text, &base_file)
-    })
-    .await
-    .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || store.lock().unwrap().update(&text, &base_file))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -328,11 +326,7 @@ pub async fn resolve_link(
     root: Option<String>,
 ) -> Result<link::ResolvedLink, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        link::resolve(
-            Path::new(&base_file),
-            &link,
-            root.as_deref().map(Path::new),
-        )
+        link::resolve(Path::new(&base_file), &link, root.as_deref().map(Path::new))
     })
     .await
     .map_err(|e| e.to_string())
@@ -355,10 +349,7 @@ pub async fn get_config(app: AppHandle) -> Result<config_store::Config, String> 
 }
 
 #[tauri::command]
-pub async fn save_config(
-    app: AppHandle,
-    config: config_store::Config,
-) -> Result<(), String> {
+pub async fn save_config(app: AppHandle, config: config_store::Config) -> Result<(), String> {
     let path = config_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || config_store::save(&path, &config))
         .await
@@ -468,21 +459,18 @@ pub fn set_current_file(state: State<'_, crate::AppState>, path: Option<String>)
     *state.current_file.lock().unwrap() = path;
 }
 
-/// Enter/leave OS fullscreen. On Windows/Linux the native menu bar belongs
-/// to the window frame, so it is hidden while fullscreen; on macOS the menu
-/// bar auto-hides in fullscreen and hide/show_menu are no-ops.
+/// Enter/leave OS fullscreen.
 #[tauri::command]
-pub async fn set_fullscreen(
-    window: tauri::WebviewWindow,
-    fullscreen: bool,
-) -> Result<(), String> {
-    window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
-    if fullscreen {
-        let _ = window.hide_menu();
-    } else {
-        let _ = window.show_menu();
-    }
-    Ok(())
+pub async fn set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Result<(), String> {
+    window.set_fullscreen(fullscreen).map_err(|e| e.to_string())
+}
+
+/// Whether this build contains the LAN share server (`--features share`).
+/// The lightweight build hides every share entry in the UI instead of
+/// failing at click time with a "command not found" rejection.
+#[tauri::command]
+pub fn share_available() -> bool {
+    cfg!(feature = "share")
 }
 
 // ---------- share server (compiled only with `--features share`) ----------
@@ -600,7 +588,9 @@ pub fn serve_set_dirty(state: State<'_, crate::AppState>, dirty: bool) {
     let Some(h) = handle.as_ref() else {
         return;
     };
-    h.shared.dirty.store(dirty, std::sync::atomic::Ordering::Relaxed);
+    h.shared
+        .dirty
+        .store(dirty, std::sync::atomic::Ordering::Relaxed);
     let msg = serde_json::json!({ "type": "dirty", "value": dirty }).to_string();
     let _ = h.shared.tx.send(msg);
 }

@@ -1,5 +1,10 @@
 import type { Mode } from "./split";
 
+/** Display prefix for chord labels in tooltips and menus (the matcher itself
+ * accepts both Ctrl and Cmd). */
+export const MOD_KEY =
+  typeof navigator !== "undefined" && /mac/i.test(navigator.platform) ? "⌘" : "Ctrl";
+
 /** A global shortcut chord, normalized from a DOM KeyboardEvent. Only the
  * fields the router cares about are modelled; `altKey` is intentionally
  * ignored (same as the pre-existing handler's behaviour). */
@@ -43,6 +48,7 @@ export type ShortcutAction =
   | "open-file"
   | "save"
   | "export-html"
+  | "toggle-sidebar"
   | "zen-next"
   | "zen-prev"
   | "zen-exit"
@@ -99,6 +105,9 @@ export function matchShortcut(
   if (mod && !e.shiftKey && key === "s") return "save";
   if (mod && !e.shiftKey && key === "e") return "export-html";
   if (mod && key === "o") return e.shiftKey ? "open-folder" : "open-file";
+  // Toggle the sidebar (was a menu-only action before the native menu went
+  // away; Ctrl/Cmd+B follows the editor convention).
+  if (mod && !e.shiftKey && key === "b") return "toggle-sidebar";
   // Zen section navigation: ←/→ or j/k jump between sections; Esc exits zen
   // first, then fullscreen (modals/panels consume their own Esc before both).
   const zenContext =

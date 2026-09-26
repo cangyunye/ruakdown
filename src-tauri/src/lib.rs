@@ -1,7 +1,5 @@
-use tauri::{
-    menu::{AboutMetadata, MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder},
-    Emitter, Manager,
-};
+use tauri::{Emitter, Manager};
+use tauri_plugin_window_state::StateFlags;
 
 mod commands;
 mod core;
@@ -9,7 +7,7 @@ mod core;
 pub struct AppState {
     pub current_file: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     /// Share server handle; only present in `--features share` builds (the
-    /// lightweight build has no server and no share menu).
+    /// lightweight build has no server and no share entries in the UI).
     #[cfg(feature = "share")]
     pub serve: std::sync::Mutex<Option<core::serve::ServeHandle>>,
     /// File path requested by the launching process (double-clicked .md),
@@ -107,7 +105,15 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // DECORATIONS must stay out of the saved/restored state: the window is
+        // undecorated by config (the webview draws the single custom titlebar),
+        // and a state file written by an older decorated build would otherwise
+        // put the native frame back on top of it on every launch.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::all() & !StateFlags::DECORATIONS)
+                .build(),
+        )
         .manage(core::watch::WatchState::default())
         .manage(AppState {
             current_file: std::sync::Arc::new(std::sync::Mutex::new(None)),
@@ -119,247 +125,13 @@ pub fn run() {
         })
         .manage(std::sync::Arc::new(LargeDocStore::default()))
         .manage(PreviewState::default())
-        .setup(|app| {
-            let handle = app.handle();
-
-            let mi_open_folder =
-                MenuItem::with_id(handle, "open-folder", "打开文件夹", true, Some("CmdOrCtrl+Shift+O"))?;
-            let mi_open_file =
-                MenuItem::with_id(handle, "open-file", "打开文件", true, Some("CmdOrCtrl+O"))?;
-            let mi_save =
-                MenuItem::with_id(handle, "save", "保存", true, Some("CmdOrCtrl+S"))?;
-            let mi_export =
-                MenuItem::with_id(handle, "export-html", "导出 HTML...", true, Some("CmdOrCtrl+E"))?;
-            let file_menu = SubmenuBuilder::new(handle, "文件")
-                .item(&mi_open_folder)
-                .item(&mi_open_file)
-                .separator()
-                .item(&mi_save)
-                .separator()
-                .item(&mi_export)
-                .separator()
-                .quit()
-                .build()?;
-
-            let mi_quick_open = MenuItem::with_id(
-                handle,
-                "quick-open",
-                "快速打开...",
-                true,
-                Some("CmdOrCtrl+P"),
-            )?;
-            let mi_search = MenuItem::with_id(
-                handle,
-                "search-dir",
-                "目录内搜索...",
-                true,
-                Some("CmdOrCtrl+Shift+F"),
-            )?;
-            let mi_find = MenuItem::with_id(
-                handle,
-                "find",
-                "查找...",
-                true,
-                Some("CmdOrCtrl+F"),
-            )?;
-            let mi_replace = MenuItem::with_id(
-                handle,
-                "replace",
-                "替换...",
-                true,
-                Some("CmdOrCtrl+R"),
-            )?;
-            let mi_mode_read =
-                MenuItem::with_id(handle, "mode-read", "阅读视图", true, None::<&str>)?;
-            let mi_mode_split =
-                MenuItem::with_id(handle, "mode-split", "分屏模式", true, None::<&str>)?;
-            let mi_mode_edit =
-                MenuItem::with_id(handle, "mode-edit", "源码模式", true, None::<&str>)?;
-            let mi_sidebar = MenuItem::with_id(
-                handle,
-                "toggle-sidebar",
-                "显示/隐藏侧边栏",
-                true,
-                None::<&str>,
-            )?;
-            let mi_zen = MenuItem::with_id(
-                handle,
-                "toggle-zen",
-                "专注模式",
-                true,
-                Some("CmdOrCtrl+Shift+Z"),
-            )?;
-            // F11 everywhere; on macOS F11 belongs to the system (Show
-            // Desktop) and fullscreen follows the Ctrl+Cmd+F convention.
-            #[cfg(target_os = "macos")]
-            let fullscreen_accel: Option<&str> = Some("Ctrl+Cmd+F");
-            #[cfg(not(target_os = "macos"))]
-            let fullscreen_accel: Option<&str> = Some("F11");
-            let mi_fullscreen = MenuItem::with_id(
-                handle,
-                "toggle-fullscreen",
-                "全屏模式",
-                true,
-                fullscreen_accel,
-            )?;
-            let view_menu = SubmenuBuilder::new(handle, "视图")
-                .item(&mi_quick_open)
-                .item(&mi_find)
-                .item(&mi_replace)
-                .item(&mi_search)
-                .separator()
-                .item(&mi_mode_read)
-                .item(&mi_mode_split)
-                .item(&mi_mode_edit)
-                .separator()
-                .item(&mi_zen)
-                .item(&mi_fullscreen)
-                .separator()
-                .item(&mi_sidebar)
-                .build()?;
-
-            let mi_theme_light =
-                MenuItem::with_id(handle, "theme-light", "浅色", true, None::<&str>)?;
-            let mi_theme_dark =
-                MenuItem::with_id(handle, "theme-dark", "暗色", true, None::<&str>)?;
-            let mi_theme_graphite =
-                MenuItem::with_id(handle, "theme-graphite", "石墨", true, None::<&str>)?;
-            let mi_theme_sunset_coast = MenuItem::with_id(
-                handle,
-                "theme-sunset-coast",
-                "夕阳海岸",
-                true,
-                None::<&str>,
-            )?;
-            let mi_theme_verdant =
-                MenuItem::with_id(handle, "theme-verdant", "无边绿意", true, None::<&str>)?;
-            let mi_theme_sky =
-                MenuItem::with_id(handle, "theme-sky", "蓝天白云", true, None::<&str>)?;
-            let mi_theme_newsprint =
-                MenuItem::with_id(handle, "theme-newsprint", "陈旧报纸", true, None::<&str>)?;
-            let mi_theme_plum_wine =
-                MenuItem::with_id(handle, "theme-plum-wine", "青梅煮酒", true, None::<&str>)?;
-            let mi_theme_mountain_stream = MenuItem::with_id(
-                handle,
-                "theme-mountain-stream",
-                "高山流水",
-                true,
-                None::<&str>,
-            )?;
-            let mi_theme_wudang =
-                MenuItem::with_id(handle, "theme-wudang", "论道武当", true, None::<&str>)?;
-            let theme_menu = SubmenuBuilder::new(handle, "主题")
-                .item(&mi_theme_light)
-                .item(&mi_theme_dark)
-                .item(&mi_theme_graphite)
-                .separator()
-                .item(&mi_theme_sunset_coast)
-                .item(&mi_theme_verdant)
-                .item(&mi_theme_sky)
-                .item(&mi_theme_newsprint)
-                .separator()
-                .item(&mi_theme_plum_wine)
-                .item(&mi_theme_mountain_stream)
-                .item(&mi_theme_wudang)
-                .build()?;
-
-            // The share menu (and the whole axum server behind it) only
-            // exists in `--features share` builds.
-            #[cfg(feature = "share")]
-            let serve_menu = {
-                let mi_serve_local = MenuItem::with_id(
-                    handle,
-                    "serve-local",
-                    "本机预览服务",
-                    true,
-                    None::<&str>,
-                )?;
-                let mi_serve_lan = MenuItem::with_id(
-                    handle,
-                    "serve-lan",
-                    "局域网分享 (只读, 需防火墙授权)",
-                    true,
-                    None::<&str>,
-                )?;
-                let mi_serve_lan_follow = MenuItem::with_id(
-                    handle,
-                    "serve-lan-follow",
-                    "局域网分享 (同步浏览)",
-                    true,
-                    None::<&str>,
-                )?;
-                let mi_serve_lan_edit = MenuItem::with_id(
-                    handle,
-                    "serve-lan-edit",
-                    "局域网分享 (协作编辑)",
-                    true,
-                    None::<&str>,
-                )?;
-                let mi_serve_stop =
-                    MenuItem::with_id(handle, "serve-stop", "停止分享服务", true, None::<&str>)?;
-                let mi_serve_open = MenuItem::with_id(
-                    handle,
-                    "serve-open",
-                    "在浏览器打开分享页",
-                    true,
-                    None::<&str>,
-                )?;
-                SubmenuBuilder::new(handle, "服务")
-                    .item(&mi_serve_local)
-                    .separator()
-                    .item(&mi_serve_lan)
-                    .item(&mi_serve_lan_follow)
-                    .item(&mi_serve_lan_edit)
-                    .separator()
-                    .item(&mi_serve_stop)
-                    .item(&mi_serve_open)
-                    .build()?
-            };
-
-            let about_item = PredefinedMenuItem::about(
-                handle,
-                Some("关于 Ruakdown"),
-                Some(AboutMetadata {
-                    name: Some("Ruakdown".into()),
-                    // From the app package info, so it always matches the
-                    // released version (tauri.conf.json `version`).
-                    version: Some(handle.package_info().version.to_string()),
-                    ..Default::default()
-                }),
-            )?;
-            let mi_repo = MenuItem::with_id(
-                handle,
-                "open-repo",
-                "GitHub 仓库",
-                true,
-                None::<&str>,
-            )?;
-            let mi_releases = MenuItem::with_id(
-                handle,
-                "open-releases",
-                "检查更新 (Releases)...",
-                true,
-                None::<&str>,
-            )?;
-            let help_menu = SubmenuBuilder::new(handle, "帮助")
-                .item(&about_item)
-                .separator()
-                .item(&mi_repo)
-                .item(&mi_releases)
-                .build()?;
-
-            let mut menus: Vec<&dyn tauri::menu::IsMenuItem<_>> =
-                vec![&file_menu, &view_menu, &theme_menu];
-            #[cfg(feature = "share")]
-            menus.push(&serve_menu);
-            menus.push(&help_menu);
-            let menu = MenuBuilder::new(handle).items(&menus).build()?;
-            app.set_menu(menu)?;
-            Ok(())
-        })
-        .on_menu_event(|app, event| {
-            let _ = app.emit("menu", event.id().0.as_str());
-        })
+        // The window is undecorated (tauri.conf.json `decorations: false`):
+        // the webview draws a single custom titlebar with its own window
+        // controls, replacing the native frame + native menu. All former
+        // menu accelerators keep working through the webview capture-phase
+        // shortcut handler (src/shortcuts.ts); tao keeps edge resizing and
+        // native caption dragging (with snap/dblclick-maximize) working for
+        // undecorated windows.
         .invoke_handler({
             #[cfg(feature = "share")]
             {
@@ -385,6 +157,7 @@ pub fn run() {
                     commands::export_html,
                     commands::set_current_file,
                     commands::set_fullscreen,
+                    commands::share_available,
                     commands::serve_start,
                     commands::serve_stop,
                     commands::serve_notify_change,
@@ -417,6 +190,7 @@ pub fn run() {
                     commands::export_html,
                     commands::set_current_file,
                     commands::set_fullscreen,
+                    commands::share_available,
                 ]
             }
         })

@@ -189,6 +189,8 @@ export const api = {
     }),
   setCurrentFile: (path: string | null) => invoke<void>("set_current_file", { path }),
   setFullscreen: (fullscreen: boolean) => invoke<void>("set_fullscreen", { fullscreen }),
+  /** True in `--features share` builds; the UI hides share entries otherwise. */
+  shareAvailable: () => invoke<boolean>("share_available"),
   // Share commands below only exist in `--features share` builds. The
   // lightweight build has no share menu, so none of these are ever invoked
   // there; every call site swallows the rejection as a safety net.

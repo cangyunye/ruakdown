@@ -37,14 +37,11 @@ import ChunkedReader, { type ChunkedReaderHandle } from "./components/ChunkedRea
 import SplitView from "./components/SplitView";
 import PreviewPane, { type PreviewPaneHandle } from "./components/PreviewPane";
 import SearchPanel from "./components/SearchPanel";
+import TitleBar from "./components/TitleBar";
 import type { SourceEditorHandle } from "./components/SourceEditor";
 import type { SourceSearch } from "./sourceSearch";
 
 const SourceEditor = lazy(() => import("./components/SourceEditor"));
-
-/** Shortcut label prefix for the current platform (menu chords use
- * CmdOrCtrl; only the display strings differ). */
-const MOD_KEY = /mac/i.test(navigator.platform) ? "⌘" : "Ctrl";
 
 /** Clipboard write with an execCommand fallback for non-secure contexts. */
 async function copyText(text: string): Promise<boolean> {
@@ -173,6 +170,7 @@ export default function App() {
   const [info, setInfo] = useState<string | null>(null);
   const [serveUrl, setServeUrl] = useState<string | null>(null);
   const [servePerms, setServePerms] = useState<{ follow: boolean; edit: boolean } | null>(null);
+  const [shareAvailable, setShareAvailable] = useState(false);
   const [followRemote, setFollowRemote] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -744,6 +742,15 @@ export default function App() {
       .catch(() => setAppVersion(""));
   }, []);
 
+  // Share entries in the ⋯ menu exist only in `--features share` builds; the
+  // command is registered in both builds so this never rejects.
+  useEffect(() => {
+    api
+      .shareAvailable()
+      .then(setShareAvailable)
+      .catch(() => setShareAvailable(false));
+  }, []);
+
   // Link navigation inside markdown (preview click / Ctrl+click in source):
   // web → browser, md → open in app (folder tree untouched), other local
   // files → system default app.
@@ -781,52 +788,36 @@ export default function App() {
   const handleEditorViewReady = useCallback((search: SourceSearch) => setSourceSearch(search), []);
   const handleEditorViewDestroy = useCallback(() => setSourceSearch(null), []);
 
-  // Latest handlers for native menu events.
-  const menuRouteRef = useRef<(id: string) => void>(() => {});
-  menuRouteRef.current = (id: string) => {
-    if (id.startsWith("theme-")) {
-      void changeTheme(id.slice("theme-".length));
-      return;
-    }
+  // TitleBar actions (the former native-menu entries) routed by id. No
+  // fireOnce here: each action has a single entry point now, unlike the old
+  // menu-accelerator + webview-keydown double path that shortcuts.ts still
+  // collapses.
+  const routeActionRef = useRef<(id: string) => void>(() => {});
+  routeActionRef.current = (id: string) => {
     switch (id) {
       case "open-folder":
-        fireOnce("open-folder", () => void chooseFolder());
+        void chooseFolder();
         break;
       case "open-file":
-        fireOnce("open-file", () => void chooseFile());
+        void chooseFile();
         break;
       case "search-dir":
-        fireOnce("search", () => openQuickOpen(true));
+        openQuickOpen(true);
         break;
       case "quick-open":
-        fireOnce("quick-open", () => openQuickOpen(false));
+        openQuickOpen(false);
         break;
       case "find":
-        fireOnce("find", () => openFind(false));
+        openFind(false);
         break;
       case "replace":
-        fireOnce("replace", () => openFind(true));
+        openFind(true);
         break;
       case "save":
         void saveDoc();
         break;
       case "export-html":
         void exportHtml();
-        break;
-      case "mode-read":
-        void switchMode("read");
-        break;
-      case "mode-split":
-        void switchMode("split");
-        break;
-      case "mode-edit":
-        void switchMode("edit");
-        break;
-      case "toggle-zen":
-        fireOnce("zen", () => void toggleZen());
-        break;
-      case "toggle-fullscreen":
-        fireOnce("fullscreen", () => void toggleFullscreen());
         break;
       case "toggle-sidebar":
         setSidebarVisible((v) => !v);
@@ -857,15 +848,7 @@ export default function App() {
         break;
     }
   };
-
-  useEffect(() => {
-    const unlisten = listen<string>("menu", (event) => {
-      menuRouteRef.current(event.payload);
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
+  const routeAction = useCallback((id: string) => routeActionRef.current(id), []);
 
   // Share session: mirror the dirty flag so viewers see a "本机有未保存修改"
   // hint (initial state on join + live flips via the server broadcast).
@@ -1022,6 +1005,9 @@ export default function App() {
           break;
         case "export-html":
           fireOnce("export-html", () => void exportHtml());
+          break;
+        case "toggle-sidebar":
+          setSidebarVisible((v) => !v);
           break;
         case "zen-next":
           zenCtlRef.current?.jumpTo((zenPosRef.current?.idx ?? 0) + 1);
@@ -1252,67 +1238,26 @@ export default function App() {
   return (
     <div className={fullscreenOn ? "app fullscreen" : "app"}>
       {!fullscreenOn && (
-        <header className="titlebar">
-          <div className="brand">Ruakdown</div>
-          <div className="spacer" />
-          {doc && (
-            <div className="mode-switch">
-              <button
-                className={mode === "read" ? "active" : ""}
-                onClick={() => switchMode("read")}
-              >
-                阅读
-              </button>
-              <button
-                className={mode === "split" ? "active" : ""}
-                onClick={() => switchMode("split")}
-              >
-                分屏
-              </button>
-              <button
-                className={mode === "edit" ? "active" : ""}
-                onClick={() => switchMode("edit")}
-              >
-                源码
-              </button>
-            </div>
-          )}
-          {doc && !doc.chunked && (
-            <button
-              className={`tool-btn${zenOn ? " active" : ""}`}
-              onClick={() => void toggleZen()}
-              title={`专注模式 (${MOD_KEY}+Shift+Z, Esc 退出)`}
-            >
-              专注
-            </button>
-          )}
-          <select
-            className="theme-select"
-            value={themeName}
-            onChange={(e) => changeTheme(e.target.value)}
-            title="切换主题"
-          >
-            {Object.entries(THEME_LABELS).map(([id, label]) => (
-              <option key={id} value={id}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <button
-            className="tool-btn"
-            onClick={() => setSettingsOpen(true)}
-            title="设置"
-          >
-            设置
-          </button>
-          <button
-            className="tool-btn"
-            onClick={() => void toggleFullscreen()}
-            title={`全屏模式 (${MOD_KEY === "⌘" ? "⌃⌘F" : "F11"})`}
-          >
-            全屏
-          </button>
-        </header>
+        <TitleBar
+          mode={mode}
+          hasDoc={!!doc}
+          docName={currentFile?.split(/[\\/]/).pop() ?? null}
+          docPath={currentFile}
+          dirty={dirty}
+          zenAvailable={!!doc && !doc.chunked}
+          zenOn={zenOn}
+          fullscreenOn={fullscreenOn}
+          themeName={themeName}
+          themeLabels={THEME_LABELS}
+          shareAvailable={shareAvailable}
+          version={appVersion || null}
+          onMode={(next) => void switchMode(next)}
+          onZen={() => void toggleZen()}
+          onFullscreen={() => void toggleFullscreen()}
+          onTheme={(name) => void changeTheme(name)}
+          onSettings={() => setSettingsOpen(true)}
+          onAction={routeAction}
+        />
       )}
 
       {/* Banner curtain: fixed overlay above everything (z 300). It slides

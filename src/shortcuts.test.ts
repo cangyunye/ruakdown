@@ -38,6 +38,10 @@ describe("matchShortcut · Windows chords (Ctrl, no meta)", () => {
     expect(matchShortcut(win("e"), idle)).toBe("export-html");
   });
 
+  it("toggles the sidebar with Ctrl+B", () => {
+    expect(matchShortcut(win("b"), idle)).toBe("toggle-sidebar");
+  });
+
   it("opens workspace search with Ctrl+Shift+F", () => {
     expect(matchShortcut(win("f", true), idle)).toBe("search");
   });
@@ -83,6 +87,10 @@ describe("matchShortcut · macOS chords (⌘/meta)", () => {
   it("maps ⌘+S → save and ⌘+E → export-html", () => {
     expect(matchShortcut(mac("s"), idle)).toBe("save");
     expect(matchShortcut(mac("e"), idle)).toBe("export-html");
+  });
+
+  it("maps ⌘+B → toggle-sidebar", () => {
+    expect(matchShortcut(mac("b"), idle)).toBe("toggle-sidebar");
   });
 
   it("maps ⌘+Shift+F → search, ⌘+P → quick-open, ⌘+Shift+Z → zen", () => {
@@ -138,6 +146,7 @@ describe("matchShortcut · suppression and gating", () => {
     );
     expect(matchShortcut(press({ key: "s", ctrlKey: true }), modal)).toBe("save");
     expect(matchShortcut(press({ key: "e", ctrlKey: true }), modal)).toBe("export-html");
+    expect(matchShortcut(press({ key: "b", ctrlKey: true }), modal)).toBe("toggle-sidebar");
   });
 
   it("suppresses zen toggle and view cycling while quick open / settings are open", () => {

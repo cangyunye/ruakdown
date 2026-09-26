@@ -59,12 +59,15 @@ const editorTheme = EditorView.theme({
     fontFamily: "'Cascadia Code', Consolas, 'Courier New', monospace",
     fontSize: "13.5px",
     lineHeight: 1.75,
-    padding: "24px 8px 60vh",
+    // Vertical padding lives on .cm-content so the background-image card
+    // (index.css) wraps it instead of leaving bare margins at top/bottom.
+    padding: "0 8px",
   },
   ".cm-content": {
     caretColor: "var(--accent)",
     maxWidth: "860px",
     margin: "0 auto",
+    padding: "24px 0 60vh",
   },
   ".cm-line": {
     padding: "0 14px",

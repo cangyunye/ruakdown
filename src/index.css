@@ -85,13 +85,23 @@ body {
   height: 100%;
 }
 
-/* ---------- top bar ---------- */
+/* ---------- top bar (custom titlebar: brand/filename · mode switch ·
+   actions · window controls) ---------- */
+
+:root {
+  /* Neutral hover fills derived from the active theme's text color, so the
+     ghost controls read correctly on every theme without per-theme rules. */
+  --hover: color-mix(in srgb, var(--text) 7%, transparent);
+  --hover-strong: color-mix(in srgb, var(--text) 13%, transparent);
+}
 
 .titlebar {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  gap: 4px;
+  height: 40px;
+  padding: 0 0 0 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
   flex: none;
@@ -99,13 +109,240 @@ body {
   user-select: none;
 }
 
-.brand {
+.tb-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-width: 0;
+}
+
+.tb-logo {
+  display: flex;
+  flex: none;
+}
+
+.tb-doc {
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+.tb-dirty {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* Flexible drag zones flanking the centered mode switch. */
+.tb-fill {
+  flex: 1 1 0;
+  align-self: stretch;
 }
 
 .spacer {
   flex: 1;
+}
+
+/* Ghost icon buttons: no border, quiet until hovered. */
+.tb-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding-right: 6px;
+}
+
+.tb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.tb-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.tb-btn:active {
+  background: var(--hover-strong);
+}
+
+.tb-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tb-dd {
+  position: relative;
+  display: inline-flex;
+}
+
+.tb-dd-label {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tb-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 232px;
+  max-height: min(480px, calc(100vh - 60px));
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow:
+    0 10px 36px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+  z-index: 500;
+  transform-origin: top right;
+  animation: tb-menu-in 0.13s ease;
+}
+
+@keyframes tb-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.tb-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.tb-menu-item:hover,
+.tb-menu-item:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+
+.tb-menu-check {
+  flex: none;
+  width: 15px;
+  display: inline-flex;
+  justify-content: center;
+  color: var(--accent);
+}
+
+.tb-menu-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tb-menu-sc {
+  flex: none;
+  margin-left: 12px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.tb-menu-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
+}
+
+.tb-menu-version {
+  margin-top: 2px;
+  padding: 7px 8px 5px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Windows-style window controls, flush against the top-right corner. */
+
+.tb-win {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  margin-left: 6px;
+  align-self: stretch;
+}
+
+.tb-win-btn {
+  width: 46px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease;
+}
+
+.tb-win-btn:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+
+.tb-win-btn:active {
+  background: var(--hover);
+}
+
+.tb-win-close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+.tb-win-close:active {
+  background: #bf0f1d;
+  color: #ffffff;
+}
+
+/* Keyboard focus rings on every titlebar control. */
+
+.titlebar button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .tool-btn {
@@ -376,9 +613,11 @@ body {
 /* Enabled from JS by toggling `bg-on` plus `bg-style-paper`/`bg-style-frosted`
    on documentElement. --reader-overlay-rgb comes from the active theme JSON, so
    the same mask strength reads as a white veil on light themes and a dark veil
-   on dark ones. */
+   on dark ones. The layers apply to both content wraps: .reader-wrap (read /
+   split preview) and .editor-wrap (source mode / split editor). */
 
-:root.bg-on .reader-wrap::before {
+:root.bg-on .reader-wrap::before,
+:root.bg-on .editor-wrap::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -393,7 +632,8 @@ body {
   pointer-events: none;
 }
 
-:root.bg-on .reader-wrap::after {
+:root.bg-on .reader-wrap::after,
+:root.bg-on .editor-wrap::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -409,12 +649,23 @@ body {
   z-index: 1;
 }
 
-:root.bg-on.bg-style-paper .md-body {
+/* Content and loading placeholders must sit above the ::before/::after
+   layers, which would otherwise paint over non-positioned children. */
+:root.bg-on .editor-wrap .source-editor,
+:root.bg-on .reader-wrap .editor-loading,
+:root.bg-on .editor-wrap .editor-loading {
+  position: relative;
+  z-index: 1;
+}
+
+:root.bg-on.bg-style-paper .md-body,
+:root.bg-on.bg-style-paper .editor-wrap .cm-content {
   background: var(--bg);
   box-shadow: 0 0 32px rgba(0, 0, 0, 0.28);
 }
 
-:root.bg-on.bg-style-frosted .md-body {
+:root.bg-on.bg-style-frosted .md-body,
+:root.bg-on.bg-style-frosted .editor-wrap .cm-content {
   background: rgba(var(--reader-overlay-rgb, 255, 255, 255), 0.5);
   backdrop-filter: blur(12px) saturate(1.05);
   -webkit-backdrop-filter: blur(12px) saturate(1.05);
@@ -621,26 +872,40 @@ html.split-resizing * {
   padding: 24px 20px 120px;
 }
 
+/* Segmented mode switch, Windows-11 style: neutral track, raised active pill. */
+
 .mode-switch {
   display: flex;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
+  flex: none;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--hover);
 }
 
 .mode-switch button {
   border: none;
   background: transparent;
   color: var(--muted);
-  padding: 4px 12px;
+  padding: 3px 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
   cursor: pointer;
-  font-size: 13px;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.mode-switch button:hover {
+  color: var(--text);
 }
 
 .mode-switch button.active {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--bg);
+  color: var(--text);
   font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
 }
 
 .notice-bar {
