@@ -1688,6 +1688,17 @@ html.split-resizing * {
   color: var(--accent);
 }
 
+/* Destructive confirmation actions (discard unsaved changes on exit). */
+.primary-btn.danger {
+  border-color: #dc2626;
+  background: #dc2626;
+}
+
+.primary-btn.danger:hover {
+  border-color: #b91c1c;
+  background: #b91c1c;
+}
+
 .primary-btn:hover {
   filter: brightness(1.08);
 }

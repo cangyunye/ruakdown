@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
@@ -231,6 +232,8 @@ export default function App() {
   // 新建子文档并引用 naming dialog.
   const [subdocOpen, setSubdocOpen] = useState(false);
   const [subdocName, setSubdocName] = useState("");
+  // Unsaved-changes dialog raised by Tauri's CloseRequested hook.
+  const [exitAsk, setExitAsk] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   // Bumped whenever the reading view's rendered content is rebuilt outside
   // the normal open flow (e.g. the post-edit reload when switching to read
@@ -330,6 +333,11 @@ export default function App() {
   const editTextRef = useRef("");
   const dirtyRef = useRef(false);
   const autosaveTimer = useRef<number | null>(null);
+  // Exit flow: `exitApproved` lets the confirmed re-close pass the
+  // CloseRequested guard; `appExiting` keeps beforeunload from running its
+  // best-effort save over a "不保存退出" decision.
+  const exitApprovedRef = useRef(false);
+  const appExitingRef = useRef(false);
   // fs events landing shortly after a save are echoes of our own write
   // (tmp+rename trips the watcher), never external edits.
   const selfSaveRef = useRef<SelfSaveMark | null>(null);
@@ -1933,9 +1941,59 @@ export default function App() {
     };
   }, []);
 
-  // Warn before closing with unsaved edits; best-effort save.
+  // Unsaved-changes guard on exit: every close path (title-bar ✕, Alt+F4,
+  // taskbar) raises Tauri's CloseRequested. A clean buffer closes straight
+  // away — Ctrl+S or autosave already cleared the dirty flag — while a dirty
+  // one is held for the in-app dialog.
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onCloseRequested((event) => {
+      if (exitApprovedRef.current || !dirtyRef.current) return;
+      event.preventDefault();
+      setExitAsk(true);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  /** Exit after the dialog's decision. `save` writes the buffer first; a
+   * failed save keeps the app open (error banner shown) so nothing is
+   * silently lost. */
+  const confirmExit = useCallback(
+    async (save: boolean) => {
+      setExitAsk(false);
+      // A pending autosave must not fire mid-exit and override a discard.
+      if (autosaveTimer.current) {
+        window.clearTimeout(autosaveTimer.current);
+        autosaveTimer.current = null;
+      }
+      exitApprovedRef.current = true;
+      appExitingRef.current = true;
+      if (save) {
+        await saveDoc();
+        if (dirtyRef.current) {
+          exitApprovedRef.current = false;
+          appExitingRef.current = false;
+          return;
+        }
+      }
+      try {
+        await getCurrentWindow().close();
+      } catch (err) {
+        exitApprovedRef.current = false;
+        appExitingRef.current = false;
+        setError("退出失败: " + String(err));
+      }
+    },
+    [saveDoc],
+  );
+
+  // Best-effort guard for the in-app reload path (F5); real window closes go
+  // through onCloseRequested above. The exit flow sets appExitingRef so a
+  // "不保存退出" decision is not overridden by a last-second save.
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (appExitingRef.current) return;
       if (dirtyRef.current) {
         void saveDoc();
         e.preventDefault();
@@ -2347,6 +2405,29 @@ export default function App() {
           onClose={closeSlashMenu}
           onSelect={runSlashAction}
         />
+      )}
+
+      {exitAsk && (
+        <div className="modal-mask" onClick={() => setExitAsk(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>有未保存的修改</h2>
+            <p className="setting-hint">
+              「{currentFile?.split(/[\\/]/).pop() ?? "当前文档"}
+              」还有未保存的修改,退出前要保存吗?
+            </p>
+            <div className="modal-actions">
+              <button className="primary-btn secondary" onClick={() => setExitAsk(false)}>
+                取消
+              </button>
+              <button className="primary-btn danger" onClick={() => void confirmExit(false)}>
+                不保存退出
+              </button>
+              <button className="primary-btn" onClick={() => void confirmExit(true)}>
+                保存并退出
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {subdocOpen && (
