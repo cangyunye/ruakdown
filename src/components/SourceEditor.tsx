@@ -65,6 +65,9 @@ interface Props {
   /** The user typed "/" or "、" at the cursor — open the slash palette
    * anchored at the given viewport coordinates. */
   onSlashTrigger?: (trigger: { pos: number; char: string; x: number; y: number }) => void;
+  /** User-driven document input that was NOT a palette trigger (further
+   * typing, IME commits, backspace). The parent closes the slash palette. */
+  onUserInput?: () => void;
 }
 
 const highlightStyle = HighlightStyle.define([
@@ -121,7 +124,7 @@ const editorTheme = EditorView.theme({
 });
 
 const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor(
-  { initialText, text, onChange, onSave, onScroll, onOpenLink, onPasteFile, onViewReady, onViewDestroy, onFocusChange, onSlashTrigger },
+  { initialText, text, onChange, onSave, onScroll, onOpenLink, onPasteFile, onViewReady, onViewDestroy, onFocusChange, onSlashTrigger, onUserInput },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -145,6 +148,11 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
   onFocusChangeRef.current = onFocusChange;
   const onSlashTriggerRef = useRef(onSlashTrigger);
   onSlashTriggerRef.current = onSlashTrigger;
+  const onUserInputRef = useRef(onUserInput);
+  onUserInputRef.current = onUserInput;
+  // A trigger typed inside an active IME composition is held here and
+  // re-validated when the composition ends (see the compositionend handler).
+  const pendingSlashRef = useRef<{ pos: number; char: string } | null>(null);
 
   /** Keymap chord → editorCommands binding. Returning true claims the chord
    * (prevents the browser default) even when there was nothing to do. */
@@ -215,6 +223,20 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
     const container = containerRef.current;
     if (!container) return;
 
+    /** Open the palette at the trigger, anchored under the cursor. */
+    const emitSlash = (trig: { pos: number; char: string }) => {
+      const view = viewRef.current;
+      if (!view) return;
+      const coords = view.coordsAtPos(trig.pos);
+      if (!coords) return;
+      onSlashTriggerRef.current?.({
+        pos: trig.pos,
+        char: trig.char,
+        x: coords.left,
+        y: coords.bottom + 2,
+      });
+    };
+
     const view = new EditorView({
       parent: container,
       state: EditorState.create({
@@ -277,15 +299,20 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
               // Slash palette: "/" or "、" just typed at the cursor.
               const trig = slashTrigger(update);
               if (trig) {
-                const coords = update.view.coordsAtPos(trig.pos);
-                if (coords) {
-                  onSlashTriggerRef.current?.({
-                    pos: trig.pos,
-                    char: trig.char,
-                    x: coords.left,
-                    y: coords.bottom + 2,
-                  });
+                if (update.view.composing) {
+                  // Opening (and focusing) a menu mid-composition can cancel
+                  // the IME's pending commit and duplicate the character —
+                  // hold the trigger until the composition ends.
+                  pendingSlashRef.current = trig;
+                } else {
+                  emitSlash(trig);
                 }
+              } else if (
+                update.transactions.some(
+                  (tr) => tr.isUserEvent("input.type") || tr.isUserEvent("delete"),
+                )
+              ) {
+                onUserInputRef.current?.();
               }
             }
           }),
@@ -301,11 +328,28 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
     const reportBlur = () => onFocusChangeRef.current?.(false);
     view.contentDOM.addEventListener("focus", reportFocus);
     view.contentDOM.addEventListener("blur", reportBlur);
+    // Deferred palette trigger: a "/" or "、" committed inside an IME
+    // composition opens the palette only once the composition has fully
+    // ended — re-validating that the trigger char still sits before the
+    // cursor (a different candidate pick changes it).
+    const onCompEnd = () => {
+      const p = pendingSlashRef.current;
+      pendingSlashRef.current = null;
+      if (!p) return;
+      const view = viewRef.current;
+      if (!view) return;
+      const head = view.state.selection.main.head;
+      if (head > 0 && view.state.doc.sliceString(head - 1, head) === p.char) {
+        emitSlash({ pos: head, char: p.char });
+      }
+    };
+    view.contentDOM.addEventListener("compositionend", onCompEnd);
     onViewReadyRef.current?.(createSourceSearch(view));
     return () => {
       view.scrollDOM.removeEventListener("scroll", handleScroll);
       view.contentDOM.removeEventListener("focus", reportFocus);
       view.contentDOM.removeEventListener("blur", reportBlur);
+      view.contentDOM.removeEventListener("compositionend", onCompEnd);
       view.destroy();
       viewRef.current = null;
       onViewDestroyRef.current?.();

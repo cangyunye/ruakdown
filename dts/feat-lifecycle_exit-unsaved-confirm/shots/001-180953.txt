@@ -1,0 +1,13 @@
+pnpm test
+ Test Files  17 passed (17)
+      Tests  218 passed (218)
+
+pnpm build (tsc && vite build)
+✓ built in 452ms
+
+cd src-tauri && cargo check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.51s
+
+git log --oneline -2
+aca1c1b feat: 退出时未保存修改确认弹窗
+6fcc6a0 feat: 文件树/编辑器右键菜单、双向互引与资产归档、斜杠面板

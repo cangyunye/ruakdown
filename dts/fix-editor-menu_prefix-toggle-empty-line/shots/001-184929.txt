@@ -1,0 +1,15 @@
+pnpm test
+ Test Files  18 passed (18)
+      Tests  227 passed (227)
+新增（editorCommands.test.ts）:
+- 空行加 H1 → "# "，光标落标记后（head=2）
+- 空行加 ul/ol/task/quote → "- " / "1. " / "- [ ] " / "> "
+- 二次切换移除 → ""
+- 空行+内容行混合选区 → "- abc\n- \n"
+- 含尾空行范围移除 → "一\n二\n"
+
+pnpm build (tsc && vite build)
+✓ built in 437ms
+
+修复：planTogglePrefix 的 allHave 增加 lines.some(non-empty) 前置条件，
+消除单空行/全空选区的真空真值导致的空 changes 无操作。

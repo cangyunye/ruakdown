@@ -288,7 +288,13 @@ export function planTogglePrefix(state: EditorState, spec: BlockSpec): EditPlan 
   const lines: ReturnType<typeof doc.line>[] = [];
   for (let n = startLine; n <= endLine; n++) lines.push(doc.line(n));
 
-  const allHave = lines.every((l) => l.text.trim() === "" || hasMarker(l.text, spec));
+  // Removal requires at least one line to actually carry the marker —
+  // otherwise a lone empty line (or an all-empty selection) would vacuously
+  // count as "already marked" and the toggle would dispatch nothing. Empty
+  // lines within the range still never block removal.
+  const allHave =
+    lines.some((l) => l.text.trim() !== "") &&
+    lines.every((l) => l.text.trim() === "" || hasMarker(l.text, spec));
   const changes: ChangeSpec[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];

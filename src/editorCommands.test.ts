@@ -263,3 +263,59 @@ describe("slashTrigger", () => {
     view.destroy();
   });
 });
+
+describe("slash palette trigger consumption", () => {
+  it("consumes the trigger at an empty line start and the block lands there", () => {
+    // Mirrors runSlashAction: delete the trigger char at its recorded
+    // position, then insert. Bug: with the caret drifted (arrows moved it
+    // before navigation was intercepted) or the position stale, empty-line
+    // insertions silently missed.
+    const view = makeView("前文\n\n后续", 3); // caret on the empty line
+    view.dispatch({
+      changes: { from: 3, insert: "、" },
+      selection: { anchor: 4 },
+      userEvent: "input.type",
+    });
+    const doc = view.state.doc;
+    expect(doc.sliceString(3, 4)).toBe("、");
+    view.dispatch({ changes: { from: 3, to: 4 }, userEvent: "delete.backward" });
+    insertTable(view);
+    const text = view.state.doc.toString();
+    expect(text).not.toContain("、");
+    expect(text.startsWith("前文\n\n| 表头 |")).toBe(true);
+    expect(text.endsWith("\n\n后续")).toBe(true);
+    view.destroy();
+  });
+});
+
+describe("togglePrefix on empty lines", () => {
+  it("adds a heading marker at the line start with the caret after it", () => {
+    const r = run("", (v) => togglePrefix(v, 1), 0);
+    expect(r.text).toBe("# ");
+    expect(r.head).toBe(2);
+  });
+
+  it("adds list, ordered-list, task and quote markers on an empty line", () => {
+    expect(run("", (v) => togglePrefix(v, "ul"), 0).text).toBe("- ");
+    expect(run("", (v) => togglePrefix(v, "ol"), 0).text).toBe("1. ");
+    expect(run("", (v) => togglePrefix(v, "task"), 0).text).toBe("- [ ] ");
+    expect(run("", (v) => togglePrefix(v, "quote"), 0).text).toBe("> ");
+  });
+
+  it("toggles back off after the marker was applied", () => {
+    const r = run("# ", (v) => togglePrefix(v, 1), 2);
+    expect(r.text).toBe("");
+  });
+
+  it("applies the marker to empty and filled lines together", () => {
+    const doc = "abc\n\n";
+    const r = run(doc, (v) => togglePrefix(v, "ul"), 0, doc.length);
+    expect(r.text).toBe("- abc\n- \n");
+  });
+
+  it("removes from a range that includes a trailing empty line", () => {
+    const doc = "- 一\n- 二\n";
+    const r = run(doc, (v) => togglePrefix(v, "ul"), 0, doc.length);
+    expect(r.text).toBe("一\n二\n");
+  });
+});

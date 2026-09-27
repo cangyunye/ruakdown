@@ -1,0 +1,17 @@
+pnpm test
+ Test Files  18 passed (18)
+      Tests  222 passed (222)
+新增:
+- ContextMenu.test.tsx (9) —— autoFocus=false 不抢焦点；windowKeyNav:
+  ArrowDown 从菜单外聚焦首项（preventDefault 已断言）、上下移动、上越界回绕到末项、
+  Enter 激活聚焦项；焦点在外时 Enter 激活首项
+- editorCommands.test.ts +1 —— 空行触发符消费回归：前文\n\n后续 + 空行"、"删除后插入表格
+  正确落位于空行（锁定"删触发符+插入"契约）
+
+pnpm build (tsc && vite build)
+✓ built in 488ms
+
+修复要点回顾:
+- ContextMenu autoFocus/windowKeyNav 两 prop（面板不再抢焦点、窗口级键盘导航）
+- SourceEditor view.composing 时挂起触发,compositionend 后校验字符再开面板
+- SourceEditor onUserInput(input.type/delete 且非触发) → App 关闭面板,替代脆弱的 window compositionend 关闭

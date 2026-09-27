@@ -1245,8 +1245,11 @@ export default function App() {
   }, []);
   // Keep typing with the palette open = dismiss it. The keystroke that
   // closes the palette is refocused into the editor so it still lands in
-  // the document (focus was on the menu item); IME composition reports
-  // key "Process" and dismisses via the length check only at commit.
+  // the document (focus may sit on a menu item after ↑/↓ navigation); IME
+  // composition reports key "Process" and is handled by the editor-side
+  // onUserInput instead. No compositionend listener here: for the IME
+  // trigger commit it could fire right after the palette opens and close it
+  // instantly.
   useEffect(() => {
     if (!slashMenu) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1257,12 +1260,9 @@ export default function App() {
         editorRef.current?.runCommand(() => {});
       }
     };
-    const onComp = () => setSlashMenu(null);
     window.addEventListener("keydown", onKey, true);
-    window.addEventListener("compositionend", onComp, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
-      window.removeEventListener("compositionend", onComp, true);
     };
   }, [slashMenu]);
 
@@ -2193,6 +2193,7 @@ export default function App() {
                           onViewDestroy={handleEditorViewDestroy}
                           onFocusChange={handleEditorFocusChange}
                           onSlashTrigger={handleSlashTrigger}
+                          onUserInput={closeSlashMenu}
                         />
                       </Suspense>
                       {findOpen && (
@@ -2244,6 +2245,7 @@ export default function App() {
                       onViewDestroy={handleEditorViewDestroy}
                       onFocusChange={handleEditorFocusChange}
                       onSlashTrigger={handleSlashTrigger}
+                      onUserInput={closeSlashMenu}
                     />
                   </Suspense>
                   {findOpen && (
@@ -2404,6 +2406,8 @@ export default function App() {
           entries={slashMenu.entries}
           onClose={closeSlashMenu}
           onSelect={runSlashAction}
+          autoFocus={false}
+          windowKeyNav
         />
       )}
 

@@ -28,13 +28,21 @@ interface Props {
   entries: CtxEntry[];
   onClose: () => void;
   onSelect: (id: string) => void;
+  /** Focus the first item on mount (default true). The slash palette turns
+   * this off so the editor keeps keyboard focus while the menu is open —
+   * stealing focus mid-IME-composition duplicates the committed character. */
+  autoFocus?: boolean;
+  /** Navigate with ArrowUp/ArrowDown/Enter/Tab from a window-level capture
+   * listener, so the menu is keyboard-operable even when focus sits outside
+   * it (the slash palette's default state). */
+  windowKeyNav?: boolean;
 }
 
 /** Fixed-position context menu for the file tree. Reuses the TitleBar
  * dropdown's `.tb-menu` visual language; positioning, viewport clamping and
  * dismissal (outside pointerdown / Esc / scroll / resize / window blur) are
  * its own. */
-export default function ContextMenu({ x, y, entries, onClose, onSelect }: Props) {
+export default function ContextMenu({ x, y, entries, onClose, onSelect, autoFocus, windowKeyNav }: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -83,10 +91,50 @@ export default function ContextMenu({ x, y, entries, onClose, onSelect }: Props)
   // by paint time the menu is already keyboard-navigable, and focus needs no
   // frame delay.
   useLayoutEffect(() => {
+    if (autoFocus === false) return;
     rootRef.current
       ?.querySelector<HTMLButtonElement>(".tb-menu-item:not(.disabled)")
       ?.focus();
-  }, []);
+  }, [autoFocus]);
+
+  // Window-level navigation for callers that keep focus elsewhere (slash
+  // palette): ↑/↓ move DOM focus into the menu (then it behaves like any
+  // focused button), Enter/Tab activate the focused item or the first one.
+  // Capture phase + stopPropagation so the editor keymap never sees them.
+  useEffect(() => {
+    if (!windowKeyNav) return;
+    const items = () =>
+      Array.from(
+        rootRef.current?.querySelectorAll<HTMLButtonElement>(".tb-menu-item:not(.disabled)") ?? [],
+      );
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        const list = items();
+        if (list.length === 0) return;
+        const idx = list.indexOf(document.activeElement as HTMLButtonElement);
+        const next =
+          e.key === "ArrowDown"
+            ? idx < 0
+              ? 0
+              : (idx + 1) % list.length
+            : idx < 0
+              ? list.length - 1
+              : (idx - 1 + list.length) % list.length;
+        list[next].focus();
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        e.stopPropagation();
+        const list = items();
+        const active = document.activeElement as HTMLButtonElement | null;
+        const target = active && list.includes(active) ? active : list[0];
+        target?.click();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [windowKeyNav]);
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;

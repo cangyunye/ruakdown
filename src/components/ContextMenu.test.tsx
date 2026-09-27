@@ -76,4 +76,66 @@ describe("ContextMenu", () => {
     expect(icon).toHaveClass("tb-menu-icon");
     expect(icon).toHaveStyle({ color: "#4f8ef7" });
   });
+
+  it("skips the mount autofocus when autoFocus is false", () => {
+    render(
+      <ContextMenu
+        x={0}
+        y={0}
+        entries={entries}
+        onClose={vi.fn()}
+        onSelect={vi.fn()}
+        autoFocus={false}
+      />,
+    );
+    const items = screen.getAllByRole("menuitem");
+    expect(items.some((b) => b === document.activeElement)).toBe(false);
+  });
+
+  it("navigates and activates from a window listener when windowKeyNav is on", () => {
+    const props = {
+      x: 0,
+      y: 0,
+      entries,
+      onClose: vi.fn(),
+      onSelect: vi.fn(),
+      autoFocus: false,
+      windowKeyNav: true,
+    };
+    render(<ContextMenu {...props} />);
+    const items = screen
+      .getAllByRole("menuitem")
+      .filter((b) => !(b as HTMLButtonElement).disabled);
+    expect(document.activeElement).not.toBe(items[0]);
+
+    // ArrowDown from outside the menu focuses the first item (and the chord
+    // is claimed so the editor never sees it).
+    expect(fireEvent.keyDown(window, { key: "ArrowDown" })).toBe(false);
+    expect(document.activeElement).toBe(items[0]);
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(items[1]);
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(items[0]);
+    // Wraps to the last enabled item.
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(items[items.length - 1]);
+
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(props.onSelect).toHaveBeenCalledWith("delete");
+  });
+
+  it("Enter with focus outside the menu activates the first item", () => {
+    const props = {
+      x: 0,
+      y: 0,
+      entries,
+      onClose: vi.fn(),
+      onSelect: vi.fn(),
+      autoFocus: false,
+      windowKeyNav: true,
+    };
+    render(<ContextMenu {...props} />);
+    expect(fireEvent.keyDown(window, { key: "Enter" })).toBe(false);
+    expect(props.onSelect).toHaveBeenCalledWith("open");
+  });
 });

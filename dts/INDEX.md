@@ -1,6 +1,20 @@
 # dts 问题档案索引
 
-共 8 条 · 未解决 0 · 已解决 8 · 更新于 2026-09-27T17:46:28+08:00
+共 11 条 · 未解决 0 · 已解决 11 · 更新于 2026-09-27T18:49:34+08:00
+
+## fix-editor-menu
+
+| id | 日期 | 摘要 | 状态 |
+|----|------|------|------|
+| [fix-editor-menu_prefix-toggle-empty-line](fix-editor-menu_prefix-toggle-empty-line/dts.md) | 2026-09-27 | 提示块以上的条目依然无法在空行下输出内容，比如选择标题1，并没有输出'#'在行首 | resolved |
+| [fix-editor-menu_slash-palette-ime-focus](fix-editor-menu_slash-palette-ime-focus/dts.md) | 2026-09-27 | 通过"、"打开的快捷列表无法用上下键移动选择；直接输入"、"实际输出"、、"；空行里打开的列表选择后没有任何实际效果，必须当前行前面有内容 | resolved |
+| [fix-editor-menu_asset-insert-render-readrefresh](fix-editor-menu_asset-insert-render-readrefresh/dts.md) | 2026-09-27 | 插入图片和文件限制了md格式无法实际插入；文件不在打开的文件夹里时粘贴图片生成的 ../../assets 相对链接无法渲染（是不是windows路径不支持）； | resolved |
+
+## feat-lifecycle
+
+| id | 日期 | 摘要 | 状态 |
+|----|------|------|------|
+| [feat-lifecycle_exit-unsaved-confirm](feat-lifecycle_exit-unsaved-confirm/dts.md) | 2026-09-27 | 补充退出检测文件是否变更，变更了则弹出提示是否保存；如果已经 Ctrl+S 保存过了需要怎么做 | resolved |
 
 ## feat-editor-menu
 
@@ -8,12 +22,6 @@
 |----|------|------|------|
 | [feat-editor-menu_slash-palette](feat-editor-menu_slash-palette/dts.md) | 2026-09-27 | 编辑模式下"/"和"、"可以和思源一样，快捷打开配方面板，也就是和右键差不多的功能，但是不需要粘贴，剪切，复制和新建子文档引用 | resolved |
 | [feat-editor-menu_context-menu-markdown-suite](feat-editor-menu_context-menu-markdown-suite/dts.md) | 2026-09-27 | 分析下，如果右键增加这些功能（思源笔记风格的右键菜单：块级插入/提示块/行内格式/媒体插入），当前是否可以实现 | resolved |
-
-## fix-editor-menu
-
-| id | 日期 | 摘要 | 状态 |
-|----|------|------|------|
-| [fix-editor-menu_asset-insert-render-readrefresh](fix-editor-menu_asset-insert-render-readrefresh/dts.md) | 2026-09-27 | 插入图片和文件限制了md格式无法实际插入；文件不在打开的文件夹里时粘贴图片生成的 ../../assets 相对链接无法渲染（是不是windows路径不支持）； | resolved |
 
 ## feat-links
 
