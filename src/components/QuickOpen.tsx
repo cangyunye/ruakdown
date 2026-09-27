@@ -10,6 +10,8 @@ interface Props {
   tree: TreeNode[];
   /** Open straight into content-search mode (Ctrl+Shift+F). */
   initialContent?: boolean;
+  /** Pre-filled search text (e.g. "search references to this file"). */
+  initialQuery?: string;
   onClose: () => void;
   onOpenFile: (path: string) => void;
   /** Content hit: open the file and jump to `line`. */
@@ -42,11 +44,12 @@ export default function QuickOpen({
   recent,
   tree,
   initialContent,
+  initialQuery,
   onClose,
   onOpenFile,
   onOpenHit,
 }: Props) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [contentMode, setContentMode] = useState(!!initialContent);
   const [selected, setSelected] = useState(0);
 
@@ -157,6 +160,12 @@ export default function QuickOpen({
   useEffect(() => {
     setContentMode(!!initialContent);
   }, [initialContent]);
+
+  // A prefilled query (context menu → search references) only applies on
+  // open; afterwards the input belongs to the user.
+  useEffect(() => {
+    if (initialQuery) setQuery(initialQuery);
+  }, [initialQuery]);
 
   const openQuick = (row: QuickRow) => onOpenFile(row.path);
   const openHit = (index: number) => {

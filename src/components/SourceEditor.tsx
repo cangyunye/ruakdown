@@ -7,13 +7,37 @@ import { markdown } from "@codemirror/lang-markdown";
 import { tags as t } from "@lezer/highlight";
 import { linkAtLine } from "../links";
 import { createSourceSearch, searchStateField, type SourceSearch } from "../sourceSearch";
+import {
+  insertCodeBlock,
+  insertLink,
+  insertTable,
+  slashTrigger,
+  togglePrefix,
+  toggleWrap,
+} from "../editorCommands";
 
-/** Imperative access for the split view's scroll sync. */
+/** Imperative access for the split view's scroll sync and link insertion. */
 export interface SourceEditorHandle {
   /** 1-based line at (or nearest below) the viewport top. */
   getTopLine: () => number;
   /** Scroll the given 1-based line to (near) the viewport top. */
   scrollToLine: (line: number) => void;
+  /** Replace the selection / insert at the cursor; returns false when the
+   * view is gone. Triggers the normal onChange chain. */
+  insertAtCursor: (insert: string) => boolean;
+  /** Run an editorCommands-style callback against the live view (context
+   * menu formatting actions); returns false when the view is gone. The
+   * command's dispatch flows through the normal onChange chain, and the
+   * editor regains focus afterwards. */
+  runCommand: (fn: (view: EditorView) => void) => boolean;
+}
+
+/** Payload handed to the paste interceptor. `files` holds files copied to
+ * the system clipboard (explorer copies, screenshots); `text` is the plain
+ * text flavour, empty for file-only clips. */
+export interface PastePayload {
+  files: File[];
+  text: string;
 }
 
 interface Props {
@@ -27,10 +51,20 @@ interface Props {
   onScroll?: () => void;
   /** Ctrl/Cmd+clicked a [text](url) span in the source. */
   onOpenLink?: (href: string) => void;
+  /** Paste interceptor: return true to claim the paste (native paste is then
+   * suppressed; the insert happens asynchronously). Only called for pastes
+   * that carry files or carry no text at all — plain text always goes
+   * through the native path. */
+  onPasteFile?: (payload: PastePayload) => boolean;
   /** Fires with the live EditorView once it is created (search panel). */
   onViewReady?: (search: SourceSearch) => void;
   /** Fires just before the view is destroyed so the parent can drop its ref. */
   onViewDestroy?: () => void;
+  /** Keyboard focus entered or left the editor's text area. */
+  onFocusChange?: (focused: boolean) => void;
+  /** The user typed "/" or "、" at the cursor — open the slash palette
+   * anchored at the given viewport coordinates. */
+  onSlashTrigger?: (trigger: { pos: number; char: string; x: number; y: number }) => void;
 }
 
 const highlightStyle = HighlightStyle.define([
@@ -87,7 +121,7 @@ const editorTheme = EditorView.theme({
 });
 
 const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor(
-  { initialText, text, onChange, onSave, onScroll, onOpenLink, onViewReady, onViewDestroy },
+  { initialText, text, onChange, onSave, onScroll, onOpenLink, onPasteFile, onViewReady, onViewDestroy, onFocusChange, onSlashTrigger },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -105,6 +139,33 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
   onViewReadyRef.current = onViewReady;
   const onViewDestroyRef = useRef(onViewDestroy);
   onViewDestroyRef.current = onViewDestroy;
+  const onPasteFileRef = useRef(onPasteFile);
+  onPasteFileRef.current = onPasteFile;
+  const onFocusChangeRef = useRef(onFocusChange);
+  onFocusChangeRef.current = onFocusChange;
+  const onSlashTriggerRef = useRef(onSlashTrigger);
+  onSlashTriggerRef.current = onSlashTrigger;
+
+  /** Keymap chord → editorCommands binding. Returning true claims the chord
+   * (prevents the browser default) even when there was nothing to do. */
+  const editorKeymap = [
+    { key: "Mod-b", run: (v: EditorView) => toggleWrap(v, "**", "**", { placeholder: "粗体" }) },
+    { key: "Mod-i", run: (v: EditorView) => toggleWrap(v, "*", "*", { placeholder: "斜体" }) },
+    { key: "Mod-u", run: (v: EditorView) => toggleWrap(v, "<u>", "</u>", { placeholder: "下划线" }) },
+    { key: "Mod-Shift-s", run: (v: EditorView) => toggleWrap(v, "~~", "~~", { placeholder: "删除线" }) },
+    { key: "Alt-d", run: (v: EditorView) => toggleWrap(v, "==", "==", { placeholder: "高亮" }) },
+    { key: "Mod-`", run: (v: EditorView) => toggleWrap(v, "`", "`", { placeholder: "代码" }) },
+    { key: "Mod-'", run: (v: EditorView) => toggleWrap(v, "<kbd>", "</kbd>", { placeholder: "Ctrl" }) },
+    { key: "Mod-m", run: (v: EditorView) => toggleWrap(v, "$", "$", { placeholder: "公式" }) },
+    { key: "Mod-k", run: insertLink },
+    { key: "Mod-l", run: (v: EditorView) => togglePrefix(v, "task") },
+    { key: "Mod-o", run: insertTable },
+    { key: "Mod-Shift-k", run: insertCodeBlock },
+    ...[1, 2, 3, 4, 5, 6].map((level) => ({
+      key: `Mod-alt-${level}`,
+      run: (v: EditorView) => togglePrefix(v, level),
+    })),
+  ];
 
   useImperativeHandle(ref, () => ({
     getTopLine: () => {
@@ -129,6 +190,25 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
         effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 8 }),
       });
     },
+    insertAtCursor: (insert: string) => {
+      const view = viewRef.current;
+      if (!view) return false;
+      const sel = view.state.selection.main;
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert },
+        selection: { anchor: sel.from + insert.length },
+        scrollIntoView: true,
+        userEvent: "input.insert",
+      });
+      return true;
+    },
+    runCommand: (fn) => {
+      const view = viewRef.current;
+      if (!view) return false;
+      fn(view);
+      view.focus();
+      return true;
+    },
   }));
 
   useEffect(() => {
@@ -150,6 +230,7 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
                 return true;
               },
             },
+            ...editorKeymap,
           ]),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           searchStateField,
@@ -171,6 +252,20 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
               cb(href);
               return true;
             },
+            paste(event) {
+              const cb = onPasteFileRef.current;
+              if (!cb) return false;
+              const dt = event.clipboardData;
+              const files = Array.from(dt?.files ?? []);
+              const text = dt?.getData("text/plain") ?? "";
+              // Text pastes stay native; file-only or empty pastes (the
+              // app-internal tree clipboard never touches the system
+              // clipboard) go through the interceptor, which decides.
+              if (text) return false;
+              if (!cb({ files, text })) return false;
+              event.preventDefault();
+              return true;
+            },
           }),
           syntaxHighlighting(highlightStyle),
           editorTheme,
@@ -179,6 +274,19 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
               const value = update.state.doc.toString();
               lastPushedRef.current = value;
               onChangeRef.current(value);
+              // Slash palette: "/" or "、" just typed at the cursor.
+              const trig = slashTrigger(update);
+              if (trig) {
+                const coords = update.view.coordsAtPos(trig.pos);
+                if (coords) {
+                  onSlashTriggerRef.current?.({
+                    pos: trig.pos,
+                    char: trig.char,
+                    x: coords.left,
+                    y: coords.bottom + 2,
+                  });
+                }
+              }
             }
           }),
         ],
@@ -187,9 +295,17 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
     viewRef.current = view;
     const handleScroll = () => onScrollRef.current?.();
     view.scrollDOM.addEventListener("scroll", handleScroll, { passive: true });
+    // Keyboard-focus reporting: focus/blur on the editable content element
+    // (they do not bubble, so document-level listeners would miss them).
+    const reportFocus = () => onFocusChangeRef.current?.(true);
+    const reportBlur = () => onFocusChangeRef.current?.(false);
+    view.contentDOM.addEventListener("focus", reportFocus);
+    view.contentDOM.addEventListener("blur", reportBlur);
     onViewReadyRef.current?.(createSourceSearch(view));
     return () => {
       view.scrollDOM.removeEventListener("scroll", handleScroll);
+      view.contentDOM.removeEventListener("focus", reportFocus);
+      view.contentDOM.removeEventListener("blur", reportBlur);
       view.destroy();
       viewRef.current = null;
       onViewDestroyRef.current?.();

@@ -33,6 +33,10 @@ export interface ShortcutState {
   hasDoc: boolean;
   /** Current view mode — zen section navigation only applies in the reader. */
   mode: Mode;
+  /** The source editor has keyboard focus: editor-scoped chords (Ctrl+B
+   * bold, Ctrl+O table, Ctrl+Shift+Z redo) take priority over the global
+   * actions they would otherwise trigger. */
+  editorFocused: boolean;
 }
 
 export type ShortcutAction =
@@ -78,8 +82,16 @@ export function matchShortcut(
   if (mod && e.shiftKey && key === "f") return "search";
   // Quick Open: Ctrl/Cmd+P (intercepted from the webview print dialog).
   if (mod && !e.shiftKey && key === "p") return "quick-open";
-  // Zen: Ctrl/Cmd+Shift+Z (would otherwise trigger editor redo).
-  if (mod && e.shiftKey && key === "z" && !s.quickOpen && !s.settingsOpen) {
+  // Zen: Ctrl/Cmd+Shift+Z (would otherwise trigger editor redo). While the
+  // editor is focused the chord belongs to CodeMirror's redo instead.
+  if (
+    mod &&
+    e.shiftKey &&
+    key === "z" &&
+    !s.editorFocused &&
+    !s.quickOpen &&
+    !s.settingsOpen
+  ) {
     return "zen";
   }
   // Fullscreen: F11 everywhere; Ctrl+Cmd+F follows the macOS convention.
@@ -104,10 +116,15 @@ export function matchShortcut(
   // accelerators fire regardless of which panel is focused).
   if (mod && !e.shiftKey && key === "s") return "save";
   if (mod && !e.shiftKey && key === "e") return "export-html";
-  if (mod && key === "o") return e.shiftKey ? "open-folder" : "open-file";
+  // Open folder / open file yield to the editor when it holds focus
+  // (Ctrl+O inserts a table there).
+  if (mod && key === "o" && !s.editorFocused) {
+    return e.shiftKey ? "open-folder" : "open-file";
+  }
   // Toggle the sidebar (was a menu-only action before the native menu went
-  // away; Ctrl/Cmd+B follows the editor convention).
-  if (mod && !e.shiftKey && key === "b") return "toggle-sidebar";
+  // away; Ctrl/Cmd+B follows the editor convention). In the editor the same
+  // chord toggles bold, so the sidebar only reacts outside of it.
+  if (mod && !e.shiftKey && key === "b" && !s.editorFocused) return "toggle-sidebar";
   // Zen section navigation: ←/→ or j/k jump between sections; Esc exits zen
   // first, then fullscreen (modals/panels consume their own Esc before both).
   const zenContext =

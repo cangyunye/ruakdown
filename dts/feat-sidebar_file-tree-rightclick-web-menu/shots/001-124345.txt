@@ -1,0 +1,4 @@
+pnpm test  → Test Files 15 passed (15) / Tests 166 passed (166)
+pnpm build → tsc + vite build ✓ built in 422ms
+cargo test --lib → test result: ok. 68 passed; 0 failed; 2 ignored
+覆盖: fsops(名字校验/越界防护/副本命名/复制移动回路) + ContextMenu + FileTree 行内编辑

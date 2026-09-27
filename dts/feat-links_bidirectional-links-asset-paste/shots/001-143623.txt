@@ -1,0 +1,4 @@
+pnpm test  → Test Files 15 passed / Tests 178 passed (178)
+pnpm build → tsc + vite build ✓ built in 425ms
+cargo test --lib → test result: ok. 70 passed; 0 failed; 2 ignored
+新增覆盖: fileOps(命名规则/时间戳/相对链接/标签/编码) + fsops(unique_numeric_path/write_and_import_asset)

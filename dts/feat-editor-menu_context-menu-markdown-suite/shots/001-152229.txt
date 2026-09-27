@@ -1,0 +1,23 @@
+pnpm test
+ Test Files  16 passed (16)
+      Tests  209 passed (209)
+   Duration  6.30s
+
+新增用例分布：
+- src/editorCommands.test.ts (26 tests) —— 命令层全量：
+  toggleWrap: 选区包裹保持选中 / 已包裹反向解除 / 空选区插占位符并选中 / <kbd> 裸HTML / ==mark==
+  togglePrefix: 加标题且光标落标记后 / 同类移除 / 异类替换(H2→H3) / 列表转任务 / 有序自动编号 / 忽略旧编号整体移除 / 光标经行编辑自动映射
+  块插入: 分隔线前后空行隔离(段落防 setext) / 空文档代码围栏光标内置中 / 选区包裹围栏 / 表格首单元格选中 / callout 开块与选区逐行引用化
+  clearCallout: 去头行+引号标记 / 普通引用只去标记
+  链接与媒体: 选区成链并选中URL槽 / 空选区同样选中URL槽 / 图片链接 / iframe / video
+- src/shortcuts.test.ts (36 tests) —— +editorFocused：
+  编辑器聚焦时 Ctrl+B/Ctrl+O/Ctrl+Shift+O/Ctrl+Shift+Z 放行给编辑器(返回 null)
+  焦点不在编辑器时保持全局行为；save/export/find 始终全局
+- src/components/ContextMenu.test.tsx (6 tests) —— +icon/color 渲染
+
+=== BUILD ===
+pnpm build (tsc && vite build)
+✓ built in 420ms
+dist/assets/index-7xZmfBjw.js  338.47 kB │ gzip: 104.94 kB
+
+Rust 端零改动（save_asset/import_asset 已在 feat-links 特性落地），cargo test 不需重跑。

@@ -1,0 +1,12 @@
+$ cargo check
+    Checking ruakdown v0.8.2 (F:\pantheon\Project\ruakdown\src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 53.30s
+
+$ pnpm test (vitest run)
+ Test Files  12 passed (12)
+      Tests  142 passed (142)
+
+真机验证 (pnpm tauri dev + PrintWindow 窗口截图):
+- 启动后原生标题栏不再出现，顶部仅自定义 TitleBar（含 – □ ×）
+- 窗口最大化状态正常、可拖拽区域正常（startDragging 能力已配置）
+- 旧状态文件中的 "decorated": true 被插件忽略，无需手动清理

@@ -268,3 +268,30 @@
   max-width: 100%;
   height: auto;
 }
+
+/* ---------- inline extensions (editor context-menu insertions) ---------- */
+
+.md-body kbd {
+  display: inline-block;
+  padding: 0.1em 0.45em;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--hover);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85em;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+.md-body sup,
+.md-body sub {
+  font-size: 0.72em;
+  line-height: 0;
+}
+
+.md-body u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

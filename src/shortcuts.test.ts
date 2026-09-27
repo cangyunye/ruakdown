@@ -13,10 +13,13 @@ const idle: ShortcutState = {
   fullscreenOn: false,
   hasDoc: true,
   mode: "read",
+  editorFocused: false,
 };
 
 const modal: ShortcutState = { ...idle, quickOpen: true };
 const fullscreen: ShortcutState = { ...idle, fullscreenOn: true };
+/** The CodeMirror editor holds keyboard focus: editor-scoped chords win. */
+const editor: ShortcutState = { ...idle, editorFocused: true };
 
 describe("matchShortcut · Windows chords (Ctrl, no meta)", () => {
   const win = (key: string, shift = false) =>
@@ -112,6 +115,33 @@ describe("matchShortcut · macOS chords (⌘/meta)", () => {
 
   it("does not hijack ⌘+Tab (belongs to the OS)", () => {
     expect(matchShortcut(press({ key: "Tab", metaKey: true }), idle)).toBeNull();
+  });
+});
+
+describe("matchShortcut · editor focus takes priority", () => {
+  const win = (key: string, shift = false) =>
+    press({ key, ctrlKey: true, metaKey: false, shiftKey: shift });
+
+  it("hands Ctrl+B to the editor (bold) instead of the sidebar", () => {
+    expect(matchShortcut(win("b"), editor)).toBeNull();
+    expect(matchShortcut(win("b"), idle)).toBe("toggle-sidebar");
+  });
+
+  it("hands Ctrl+O to the editor (table) instead of the open dialog", () => {
+    expect(matchShortcut(win("o"), editor)).toBeNull();
+    expect(matchShortcut(win("o", true), editor)).toBeNull();
+    expect(matchShortcut(win("o"), idle)).toBe("open-file");
+  });
+
+  it("hands Ctrl+Shift+Z to the editor (redo) instead of zen", () => {
+    expect(matchShortcut(win("z", true), editor)).toBeNull();
+    expect(matchShortcut(win("z", true), idle)).toBe("zen");
+  });
+
+  it("keeps save/export/find global while the editor is focused", () => {
+    expect(matchShortcut(win("s"), editor)).toBe("save");
+    expect(matchShortcut(win("e"), editor)).toBe("export-html");
+    expect(matchShortcut(win("f"), editor)).toBe("find");
   });
 });
 

@@ -1,5 +1,5 @@
-import { memo } from "react";
-import { FileTree } from "./FileTree";
+import { memo, type MouseEvent as ReactMouseEvent } from "react";
+import { FileTree, type TreeDraft } from "./FileTree";
 import { Outline } from "./Outline";
 import type { OutlineItem, TreeNode } from "../ipc";
 
@@ -13,6 +13,15 @@ interface Props {
   activeFile: string | null;
   activeHeading: string | null;
   hasFolder: boolean;
+  /** Workspace root path (file-tree context menu anchor). */
+  rootPath: string | null;
+  expanded: Set<string>;
+  onToggle: (path: string) => void;
+  draft: TreeDraft | null;
+  onCommitDraft: (name: string) => void;
+  onCancelDraft: () => void;
+  /** node === null is the blank area of the pane. */
+  onNodeContextMenu: (e: ReactMouseEvent, node: TreeNode | null) => void;
   onOpenFile: (path: string) => void;
   onJump: (id: string) => void;
 }
@@ -38,12 +47,22 @@ export const Sidebar = memo(function Sidebar(props: Props) {
         </button>
       </div>
       <div className="sidebar-panes">
-        <div className={"sidebar-pane" + (props.tab === "files" ? "" : " hidden")}>
+        <div
+          className={"sidebar-pane" + (props.tab === "files" ? "" : " hidden")}
+          onContextMenu={(e) => props.onNodeContextMenu(e, null)}
+        >
           {props.hasFolder ? (
             <FileTree
               nodes={props.tree}
+              rootPath={props.rootPath}
               activeFile={props.activeFile}
               onOpenFile={props.onOpenFile}
+              expanded={props.expanded}
+              onToggle={props.onToggle}
+              draft={props.draft}
+              onCommitDraft={props.onCommitDraft}
+              onCancelDraft={props.onCancelDraft}
+              onNodeContextMenu={props.onNodeContextMenu}
             />
           ) : (
             <div className="pane-empty">尚未打开文件夹</div>

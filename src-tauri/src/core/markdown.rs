@@ -328,12 +328,45 @@ pub fn resolve_img_path(base: Option<&std::path::Path>, raw: &str) -> Option<std
     }
     let base = base?;
     let rel = decoded.replace('\\', "/");
-    Some(base.join(rel.trim_start_matches('/')))
+    Some(normalize_lexical(&base.join(rel.trim_start_matches('/'))))
 }
 
 /// Rewrite relative `<img src="...">` references to the Tauri asset protocol so
 /// images next to the markdown file actually load inside the webview.
 /// Absolute URLs (http/https/data/anchors) are left untouched.
+/// Lexical `.` / `..` resolution without filesystem access (symlinks stay
+/// unresolved). `..` that would climb past the prefix/root is kept — it
+/// cannot be resolved locally. Needed because `dunce::simplified` only
+/// strips the UNC prefix and never touches dot segments, so parent-climbing
+/// image paths (../../assets/…) would otherwise reach the asset protocol
+/// as literal `..` segments.
+fn normalize_lexical(path: &std::path::Path) -> std::path::PathBuf {
+    use std::path::Component;
+    let mut out = std::path::PathBuf::new();
+    // How many components a `..` may still climb past (prefix/root excluded).
+    let mut depth = 0usize;
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if depth > 0 {
+                    out.pop();
+                    depth -= 1;
+                } else {
+                    out.push("..");
+                }
+            }
+            other => {
+                out.push(other.as_os_str());
+                if !matches!(other, Component::Prefix(_) | Component::RootDir) {
+                    depth += 1;
+                }
+            }
+        }
+    }
+    out
+}
+
 pub fn rewrite_img_srcs(html: &str, base: Option<&std::path::Path>) -> String {
     const ASSET_SET: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
         .remove(b'-')
@@ -351,7 +384,8 @@ pub fn rewrite_img_srcs(html: &str, base: Option<&std::path::Path>) -> String {
         let full = base
             .map(|b| b.join(rel.trim_start_matches('/')))
             .unwrap_or_default();
-        let full = dunce::simplified(&full).to_string_lossy();
+        let normalized = normalize_lexical(&full);
+        let full = dunce::simplified(&normalized).to_string_lossy();
         let enc = percent_encoding::utf8_percent_encode(&full, ASSET_SET);
         if cfg!(windows) {
             format!("http://asset.localhost/{enc}")
@@ -502,6 +536,19 @@ mod tests {
         assert!(doc.html.contains("tok-keyword"), "{}", doc.html);
         assert!(doc.html.contains("tok-number"), "{}", doc.html);
         assert!(!doc.html.contains("<span style"), "{}", doc.html);
+    }
+
+    #[test]
+    fn img_rewrite_resolves_parent_climbs() {
+        // Links to a workspace-level assets folder climb with `../`; the
+        // built asset URL must carry the resolved path, not literal `..`
+        // segments (dunce::simplified does not normalize them).
+        let doc = render_markdown("![img](../../assets/pic.png)");
+        let out = rewrite_img_srcs(&doc.html, Some(std::path::Path::new("F:\\\\ws\\\\a\\\\b")));
+        assert!(!out.contains(".."), "{}", out);
+        if cfg!(windows) {
+            assert!(out.contains("F%3A%5Cws%5Cassets%5Cpic.png"), "{}", out);
+        }
     }
 
     #[test]

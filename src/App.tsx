@@ -1,8 +1,8 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
   api,
   SERVE_PORT,
@@ -20,6 +20,23 @@ import { decideFsChange, type SelfSaveMark } from "./changeDecision";
 import { blockAtLine, headingOwners, lockAllows, nextSyncTarget, SYNC_LOCK_MS, type SyncLock } from "./scrollSync";
 import { matchShortcut } from "./shortcuts";
 import {
+  clearCallout,
+  insertAudio,
+  insertCallout,
+  insertCodeBlock,
+  insertHr,
+  insertIframe,
+  insertImageLink,
+  insertLink,
+  insertMathBlock,
+  insertMindmap,
+  insertTable,
+  insertVideo,
+  togglePrefix,
+  toggleWrap,
+} from "./editorCommands";
+import type { EditorView } from "@codemirror/view";
+import {
   flipSide,
   nextEditorText,
   nextMode,
@@ -32,13 +49,34 @@ import type { ZenController, ZenLevel } from "./zen";
 import { Sidebar, type SidebarTab } from "./components/Sidebar";
 import { Reader } from "./components/Reader";
 import QuickOpen from "./components/QuickOpen";
+import ContextMenu, { type CtxEntry } from "./components/ContextMenu";
+import type { TreeDraft } from "./components/FileTree";
+import {
+  assetDestDir,
+  assetBaseName,
+  ensureMdExt,
+  findTreeNode,
+  isImagePath,
+  isInsideRoot,
+  linkLabel,
+  mdImageTag,
+  mdLinkTag,
+  pathBasename,
+  pathDirname,
+  pathJoin,
+  relativeLinkHref,
+  relativePathInRoot,
+  stemOf,
+  entryNameError,
+} from "./fileOps";
 import { upsertRecent } from "./quickOpen";
+import { buildEditorMenuEntries } from "./editorMenuEntries";
 import ChunkedReader, { type ChunkedReaderHandle } from "./components/ChunkedReader";
 import SplitView from "./components/SplitView";
 import PreviewPane, { type PreviewPaneHandle } from "./components/PreviewPane";
 import SearchPanel from "./components/SearchPanel";
 import TitleBar from "./components/TitleBar";
-import type { SourceEditorHandle } from "./components/SourceEditor";
+import type { SourceEditorHandle, PastePayload } from "./components/SourceEditor";
 import type { SourceSearch } from "./sourceSearch";
 
 const SourceEditor = lazy(() => import("./components/SourceEditor"));
@@ -75,6 +113,7 @@ const THEME_LABELS: Record<string, string> = {
   "mountain-stream": "高山流水",
   wudang: "论道武当",
 };
+
 
 /** Project home and release feed, opened from the settings modal and the
  * empty state. Releases carry the prebuilt installers (update channel). */
@@ -176,8 +215,27 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickContent, setQuickContent] = useState(false);
+  const [quickQuery, setQuickQuery] = useState("");
+  const [assetsDir, setAssetsDir] = useState<string | null>(null);
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
+  // File-tree context menu state.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [draft, setDraft] = useState<TreeDraft | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; entries: CtxEntry[] } | null>(
+    null,
+  );
+  // Editor (CodeMirror) context menu — same shape, separate dispatcher.
+  const [editorMenu, setEditorMenu] = useState<{ x: number; y: number; entries: CtxEntry[] } | null>(
+    null,
+  );
+  // 新建子文档并引用 naming dialog.
+  const [subdocOpen, setSubdocOpen] = useState(false);
+  const [subdocName, setSubdocName] = useState("");
   const [findOpen, setFindOpen] = useState(false);
+  // Bumped whenever the reading view's rendered content is rebuilt outside
+  // the normal open flow (e.g. the post-edit reload when switching to read
+  // mode) — ChunkedReader keeps imperative state, so it must remount.
+  const [readRev, setReadRev] = useState(0);
   const [findShowReplace, setFindShowReplace] = useState(false);
   const [findFocusNonce, setFindFocusNonce] = useState(0);
   const [sourceSearch, setSourceSearch] = useState<SourceSearch | null>(null);
@@ -230,6 +288,10 @@ export default function App() {
   const hydrated = useRef(false);
   const chunkedReaderRef = useRef<ChunkedReaderHandle | null>(null);
   const editorRef = useRef<SourceEditorHandle | null>(null);
+  // Whether the CodeMirror editor currently holds keyboard focus; consulted
+  // by the global chord router so Ctrl+B / Ctrl+O / Ctrl+Shift+Z reach the
+  // editor commands instead of the sidebar / open dialog / zen.
+  const editorFocusedRef = useRef(false);
   const previewRef = useRef<PreviewPaneHandle | null>(null);
   // Scroll-sync state: which side drove the last sync (echo suppression)
   // and the block that should sit at the preview top (editor is the source
@@ -250,6 +312,7 @@ export default function App() {
     zenCfg,
     editorSide,
     splitRatio,
+    assetsDir,
   });
   stateRef.current = {
     root,
@@ -262,6 +325,7 @@ export default function App() {
     zenCfg,
     editorSide,
     splitRatio,
+    assetsDir,
   };
   const editTextRef = useRef("");
   const dirtyRef = useRef(false);
@@ -289,6 +353,7 @@ export default function App() {
         background: s.bg,
         zen: s.zenCfg,
         split: { editorSide: s.editorSide, ratio: s.splitRatio },
+        assetsDir: s.assetsDir,
         ...patch,
       })
       .catch(() => {});
@@ -505,6 +570,29 @@ export default function App() {
     [persist],
   );
 
+  /** Immediate one-shot tree rescan after a context-menu operation (the
+   * watcher would also catch it, but only after its debounce). */
+  const rescanTree = useCallback(() => {
+    const r = stateRef.current.root;
+    if (!r) return;
+    api.loadTree(r).then(setTree).catch(() => {
+      /* folder may have been removed; keep last tree */
+    });
+  }, []);
+
+  const toggleExpanded = useCallback((path: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const expandDir = useCallback((path: string) => {
+    setExpanded((prev) => (prev.has(path) ? prev : new Set(prev).add(path)));
+  }, []);
+
   const openFile = useCallback(
     async (path: string) => {
       try {
@@ -614,6 +702,20 @@ export default function App() {
       const prev = stateRef.current.mode;
       if (next === "read") {
         await saveDoc();
+        // The reading view renders doc.html / chunked HTML that open_doc
+        // built once at open time — saving only refreshes the text, so an
+        // image pasted in the editor never showed up. Re-open the just-
+        // saved file to regenerate the rendered content.
+        const file = stateRef.current.currentFile;
+        if (file) {
+          try {
+            const d = await api.openDoc(file);
+            setDoc(d);
+            setReadRev((v) => v + 1);
+          } catch (err) {
+            setError("重新加载失败: " + String(err));
+          }
+        }
       }
       editTextRef.current = nextEditorText(
         next,
@@ -778,15 +880,25 @@ export default function App() {
 
   const closeFind = useCallback(() => setFindOpen(false), []);
 
-  /** Quick Open modal; `content` starts it in workspace content-search mode. */
-  const openQuickOpen = useCallback((content: boolean) => {
+  /** Quick Open modal; `content` starts it in workspace content-search mode,
+   * `query` prefills the search text (context-menu "search references"). */
+  const openQuickOpen = useCallback((content: boolean, query = "") => {
     setQuickContent(content);
+    setQuickQuery(query);
     setQuickOpen(true);
   }, []);
 
   /** SourceEditor hands us its search bridge for the panel. */
   const handleEditorViewReady = useCallback((search: SourceSearch) => setSourceSearch(search), []);
-  const handleEditorViewDestroy = useCallback(() => setSourceSearch(null), []);
+  const handleEditorViewDestroy = useCallback(() => {
+    // The unmount path never fires blur — drop the focus flag explicitly so
+    // global chords (Ctrl+B sidebar etc.) work again in read mode.
+    editorFocusedRef.current = false;
+    setSourceSearch(null);
+  }, []);
+  const handleEditorFocusChange = useCallback((focused: boolean) => {
+    editorFocusedRef.current = focused;
+  }, []);
 
   // TitleBar actions (the former native-menu entries) routed by id. No
   // fireOnce here: each action has a single entry point now, unlike the old
@@ -849,6 +961,596 @@ export default function App() {
     }
   };
   const routeAction = useCallback((id: string) => routeActionRef.current(id), []);
+
+  // ── Sidebar file-tree context menu ─────────────────────────────────
+  // `node === null` means the blank area / workspace root. The target is
+  // captured at open time (ctxTargetRef) so menu actions can't race a
+  // quickly-reopened menu: they read it once, synchronously.
+  const ctxTargetRef = useRef<TreeNode | null>(null);
+  /** App-internal clipboard for 复制/剪切 → 粘贴 (system file clipboard is
+   * out of scope; duplicates cover the copy-within-folder case). */
+  const clipRef = useRef<{ paths: string[]; cut: boolean } | null>(null);
+  const treeRef = useRef<TreeNode[]>([]);
+  treeRef.current = tree;
+
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+
+  const openTreeMenu = useCallback(
+    (e: ReactMouseEvent, node: TreeNode | null) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const s = stateRef.current;
+      if (!s.root) return;
+      ctxTargetRef.current = node;
+      setEditorMenu(null);
+      const hasClip = clipRef.current != null;
+      const canInsert = !!s.currentFile && s.mode !== "read";
+      const items: CtxEntry[] = [];
+      if (node == null) {
+        items.push(
+          { type: "item", id: "new-file", label: "新建 Markdown 文件" },
+          { type: "item", id: "new-dir", label: "新建文件夹" },
+          { type: "sep" },
+          { type: "item", id: "reveal", label: "在资源管理器中打开" },
+          { type: "item", id: "refresh", label: "刷新" },
+        );
+        if (hasClip) {
+          items.push({ type: "sep" }, { type: "item", id: "paste", label: "粘贴" });
+        }
+      } else if (node.isDir) {
+        items.push(
+          { type: "item", id: "new-file", label: "新建 Markdown 文件" },
+          { type: "item", id: "new-dir", label: "新建文件夹" },
+          { type: "sep" },
+          { type: "item", id: "reveal", label: "在资源管理器中打开" },
+          { type: "item", id: "rename", label: "重命名", shortcut: "F2" },
+          { type: "item", id: "duplicate", label: "创建副本" },
+          { type: "item", id: "copy", label: "复制" },
+          { type: "item", id: "cut", label: "剪切" },
+        );
+        if (hasClip) items.push({ type: "item", id: "paste", label: "粘贴" });
+        items.push({ type: "sep" }, { type: "item", id: "delete", label: "删除", danger: true });
+      } else {
+        items.push(
+          { type: "item", id: "open", label: "打开" },
+          { type: "item", id: "reveal", label: "在资源管理器中显示" },
+          { type: "item", id: "search-name", label: "在目录内搜索该文件" },
+          { type: "sep" },
+          { type: "item", id: "copy-path", label: "复制文件路径" },
+          { type: "item", id: "copy-rel", label: "复制相对路径" },
+          { type: "item", id: "copy-name", label: "复制文件名" },
+          { type: "sep" },
+          { type: "item", id: "copy-md-link", label: "复制 Markdown 链接" },
+          {
+            type: "item",
+            id: "insert-link",
+            label: "插入链接到当前文档",
+            disabled: !canInsert,
+          },
+          { type: "sep" },
+          { type: "item", id: "rename", label: "重命名", shortcut: "F2" },
+          { type: "item", id: "duplicate", label: "创建副本" },
+          { type: "item", id: "copy", label: "复制" },
+          { type: "item", id: "cut", label: "剪切" },
+          { type: "sep" },
+          { type: "item", id: "delete", label: "删除", danger: true },
+        );
+      }
+      setCtxMenu({ x: e.clientX, y: e.clientY, entries: items });
+    },
+    [],
+  );
+
+  const treeActionRef = useRef<(id: string) => void>(() => {});
+  treeActionRef.current = (id: string) => {
+    const node = ctxTargetRef.current;
+    const s = stateRef.current;
+    const rootDir = s.root;
+    if (!rootDir) return;
+    switch (id) {
+      case "open":
+        if (node) void openFile(node.path);
+        break;
+      case "reveal":
+        // Entries are revealed (selected in their parent); the workspace
+        // root itself is opened directly.
+        if (node) {
+          revealItemInDir(node.path).catch((err) =>
+            setError("打开资源管理器失败: " + String(err)),
+          );
+        } else {
+          openPath(rootDir).catch((err) => setError("打开资源管理器失败: " + String(err)));
+        }
+        break;
+      case "refresh":
+        rescanTree();
+        break;
+      case "search-name":
+        if (node) openQuickOpen(true, stemOf(node.name));
+        break;
+      case "copy-path":
+        if (node) void copyText(node.path).then((ok) => setInfo(ok ? "路径已复制" : "复制失败"));
+        break;
+      case "copy-rel":
+        if (node)
+          void copyText(relativePathInRoot(rootDir, node.path)).then((ok) =>
+            setInfo(ok ? "相对路径已复制" : "复制失败"),
+          );
+        break;
+      case "copy-name":
+        if (node) void copyText(node.name).then((ok) => setInfo(ok ? "文件名已复制" : "复制失败"));
+        break;
+      case "copy-md-link": {
+        if (!node) break;
+        // Relative to the open document so it resolves when pasted there;
+        // without a document, root-relative.
+        const href = relativeLinkHref(s.currentFile ?? rootDir, node.path);
+        void copyText(mdLinkTag(linkLabel(node.name, "doc"), href)).then((ok) =>
+          setInfo(ok ? "Markdown 链接已复制,可粘贴到其他文档" : "复制失败"),
+        );
+        break;
+      }
+      case "insert-link": {
+        if (!node) break;
+        const href = relativeLinkHref(s.currentFile ?? rootDir, node.path);
+        if (!editorRef.current?.insertAtCursor(mdLinkTag(linkLabel(node.name, "doc"), href))) {
+          setInfo("插入链接需要先在源码或分屏模式打开文档");
+        }
+        break;
+      }
+      case "rename":
+        if (node) setDraft({ kind: "rename", targetPath: node.path, initial: node.name });
+        break;
+      case "new-file":
+        setDraft({ kind: "new-file", parentDir: node?.path ?? rootDir });
+        if (node) expandDir(node.path);
+        break;
+      case "new-dir":
+        setDraft({ kind: "new-dir", parentDir: node?.path ?? rootDir });
+        if (node) expandDir(node.path);
+        break;
+      case "duplicate": {
+        if (!node) break;
+        api
+          .copyEntries(rootDir, [node.path], pathDirname(node.path))
+          .then(() => {
+            rescanTree();
+            setInfo(`已创建 "${node.name}" 的副本`);
+          })
+          .catch((err) => setError("创建副本失败: " + String(err)));
+        break;
+      }
+      case "copy":
+        if (node) {
+          clipRef.current = { paths: [node.path], cut: false };
+          setInfo(`已复制 "${node.name}",可在目标文件夹或空白处粘贴`);
+        }
+        break;
+      case "cut":
+        if (node) {
+          clipRef.current = { paths: [node.path], cut: true };
+          setInfo(`已剪切 "${node.name}",在目标文件夹或空白处粘贴`);
+        }
+        break;
+      case "paste": {
+        const clip = clipRef.current;
+        if (!clip) break;
+        const dest = node?.isDir ? node.path : node ? pathDirname(node.path) : rootDir;
+        const move = clip.cut;
+        const op = move
+          ? api.moveEntries(rootDir, clip.paths, dest)
+          : api.copyEntries(rootDir, clip.paths, dest);
+        op.then((n) => {
+          if (move) clipRef.current = null;
+          expandDir(dest);
+          rescanTree();
+          setInfo(move ? `已移动 ${n} 项` : `已粘贴 ${n} 项`);
+        }).catch((err) => setError("粘贴失败: " + String(err)));
+        break;
+      }
+      case "delete": {
+        if (!node) break;
+        const sep = node.path.includes("\\") ? "\\" : "/";
+        const touchesCurrent =
+          !!s.currentFile &&
+          (s.currentFile === node.path || s.currentFile.startsWith(node.path + sep));
+        const what = node.isDir ? "文件夹" : "文件";
+        if (
+          !window.confirm(
+            `删除${what} "${node.name}"?\n` +
+              (node.isDir ? "其中所有内容将一并" : "") +
+              "移入回收站,可在回收站恢复。",
+          )
+        ) {
+          break;
+        }
+        api
+          .trashEntry(rootDir, node.path)
+          .then(() => {
+            if (touchesCurrent) {
+              setCurrentFile(null);
+              setDoc(null);
+              editTextRef.current = "";
+              dirtyRef.current = false;
+              setDirty(false);
+              setExternalChange(false);
+              void api.setCurrentFile(null);
+              persist({ lastFile: null });
+            }
+            rescanTree();
+            setInfo(`已删除 "${node.name}" (移入回收站)`);
+          })
+          .catch((err) => setError("删除失败: " + String(err)));
+        break;
+      }
+    }
+  };
+  const runTreeAction = useCallback((id: string) => treeActionRef.current(id), []);
+
+  // ── Editor (CodeMirror) context menu ────────────────────────────────
+  const closeEditorMenu = useCallback(() => setEditorMenu(null), []);
+  // Opened from the document-level contextmenu listener (which currently
+  // lets .cm-editor through); preventDefaults and builds the entry list.
+  const openEditorMenuRef = useRef<(e: MouseEvent) => void>(() => {});
+  openEditorMenuRef.current = (e: MouseEvent) => {
+    const s = stateRef.current;
+    if (!s.doc) return;
+    e.preventDefault();
+    setCtxMenu(null);
+    setEditorMenu({ x: e.clientX, y: e.clientY, entries: buildEditorMenuEntries(true) });
+  };
+
+  // ── Slash palette ("/" or "、" typed in the editor) ─────────────────
+  // Same insertion entries as the context menu, minus clipboard and
+  // 新建子文档并引用. Selecting an entry consumes the trigger character
+  // before inserting, so "／表格" leaves just the table.
+  const [slashMenu, setSlashMenu] = useState<{ x: number; y: number; entries: CtxEntry[] } | null>(
+    null,
+  );
+  const slashPosRef = useRef<number | null>(null);
+  const slashCharRef = useRef("/");
+  const closeSlashMenu = useCallback(() => setSlashMenu(null), []);
+  const handleSlashTrigger = useCallback(
+    (t: { pos: number; char: string; x: number; y: number }) => {
+      setCtxMenu(null);
+      setEditorMenu(null);
+      slashPosRef.current = t.pos;
+      slashCharRef.current = t.char;
+      setSlashMenu({ x: t.x, y: t.y, entries: buildEditorMenuEntries(false) });
+    },
+    [],
+  );
+  const runSlashAction = useCallback((id: string) => {
+    setSlashMenu(null);
+    const pos = slashPosRef.current;
+    const ch = slashCharRef.current;
+    const ed = editorRef.current;
+    if (ed && pos != null) {
+      ed.runCommand((view) => {
+        const p = Math.min(pos, view.state.doc.length);
+        if (p > 0 && view.state.sliceDoc(p - 1, p) === ch) {
+          view.dispatch({ changes: { from: p - 1, to: p }, userEvent: "delete.backward" });
+        }
+      });
+    }
+    runEditorActionRef.current(id);
+  }, []);
+  // Keep typing with the palette open = dismiss it. The keystroke that
+  // closes the palette is refocused into the editor so it still lands in
+  // the document (focus was on the menu item); IME composition reports
+  // key "Process" and dismisses via the length check only at commit.
+  useEffect(() => {
+    if (!slashMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      const closes = e.key.length === 1 || e.key === "Backspace" || e.key === "Delete";
+      if (!closes) return;
+      setSlashMenu(null);
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        editorRef.current?.runCommand(() => {});
+      }
+    };
+    const onComp = () => setSlashMenu(null);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("compositionend", onComp, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("compositionend", onComp, true);
+    };
+  }, [slashMenu]);
+
+  /** Insert a picked file as an archived asset, mirroring the paste path. */
+  const insertAssetFromFile = async () => {
+    const s = stateRef.current;
+    if (!s.currentFile) {
+      setInfo("插入资源需要先打开文档");
+      return;
+    }
+    const src = await api.pickAsset();
+    if (!src || !editorRef.current) return;
+    const destDir = assetDestDir(s.root, s.currentFile, s.assetsDir);
+    if (!destDir) return;
+    try {
+      const name = pathBasename(src);
+      const finalPath = await api.importAsset(
+        s.root ?? pathDirname(s.currentFile),
+        src,
+        destDir,
+        assetBaseName(s.currentFile, name),
+      );
+      const href = relativeLinkHref(s.currentFile, finalPath);
+      const label = linkLabel(name, "file");
+      editorRef.current.insertAtCursor(
+        isImagePath(name) ? mdImageTag(label, href) : mdLinkTag(label, href),
+      );
+      setInfo(`已插入 "${name}"`);
+    } catch (err) {
+      setError("资源归档失败: " + String(err));
+    }
+  };
+
+  const runEditorActionRef = useRef<(id: string) => void>(() => {});
+  runEditorActionRef.current = (id: string) => {
+    const ed = editorRef.current;
+    const run = (fn: (view: EditorView) => void) => {
+      if (!ed?.runCommand(fn)) setInfo("编辑操作需要在源码或分屏模式中进行");
+    };
+    switch (id) {
+      case "cut":
+        run((view) => {
+          const sel = view.state.selection.main;
+          if (sel.empty) return;
+          const text = view.state.sliceDoc(sel.from, sel.to);
+          void copyText(text).then((ok) => {
+            if (ok) view.dispatch({ changes: { from: sel.from, to: sel.to }, userEvent: "delete.cut" });
+          });
+        });
+        break;
+      case "copy":
+        run((view) => {
+          const sel = view.state.selection.main;
+          if (!sel.empty) void copyText(view.state.sliceDoc(sel.from, sel.to));
+        });
+        break;
+      case "paste":
+        navigator.clipboard
+          .readText()
+          .then((text) => {
+            if (text) ed?.insertAtCursor(text);
+          })
+          .catch(() => setInfo("无法读取系统剪贴板,可直接 Ctrl+V 粘贴"));
+        break;
+      case "new-subdoc":
+        setSubdocName("");
+        setSubdocOpen(true);
+        break;
+      case "ul":
+        run((view) => togglePrefix(view, "ul"));
+        break;
+      case "ol":
+        run((view) => togglePrefix(view, "ol"));
+        break;
+      case "task":
+        run((view) => togglePrefix(view, "task"));
+        break;
+      case "quote":
+        run((view) => togglePrefix(view, "quote"));
+        break;
+      case "callout-clear":
+        run(clearCallout);
+        break;
+      case "codeblock":
+        run(insertCodeBlock);
+        break;
+      case "table":
+        run(insertTable);
+        break;
+      case "hr":
+        run(insertHr);
+        break;
+      case "mathblock":
+        run(insertMathBlock);
+        break;
+      case "mindmap":
+        run(insertMindmap);
+        break;
+      case "link":
+        run(insertLink);
+        break;
+      case "bold":
+        run((view) => toggleWrap(view, "**", "**", { placeholder: "粗体" }));
+        break;
+      case "italic":
+        run((view) => toggleWrap(view, "*", "*", { placeholder: "斜体" }));
+        break;
+      case "underline":
+        run((view) => toggleWrap(view, "<u>", "</u>", { placeholder: "下划线文本" }));
+        break;
+      case "strike":
+        run((view) => toggleWrap(view, "~~", "~~", { placeholder: "删除线" }));
+        break;
+      case "mark":
+        run((view) => toggleWrap(view, "==", "==", { placeholder: "高亮" }));
+        break;
+      case "sup":
+        run((view) => toggleWrap(view, "<sup>", "</sup>", { placeholder: "上标" }));
+        break;
+      case "sub":
+        run((view) => toggleWrap(view, "<sub>", "</sub>", { placeholder: "下标" }));
+        break;
+      case "inlinecode":
+        run((view) => toggleWrap(view, "`", "`", { placeholder: "代码" }));
+        break;
+      case "kbd":
+        run((view) => toggleWrap(view, "<kbd>", "</kbd>", { placeholder: "Ctrl" }));
+        break;
+      case "inlinemath":
+        run((view) => toggleWrap(view, "$", "$", { placeholder: "公式" }));
+        break;
+      case "insert-asset":
+        void insertAssetFromFile();
+        break;
+      case "insert-image-link":
+        run(insertImageLink);
+        break;
+      case "insert-iframe":
+        run(insertIframe);
+        break;
+      case "insert-video":
+        run(insertVideo);
+        break;
+      case "insert-audio":
+        run(insertAudio);
+        break;
+      default:
+        if (id.startsWith("h")) {
+          const level = Number(id.slice(1));
+          if (level >= 1 && level <= 6) run((view) => togglePrefix(view, level));
+        } else if (id.startsWith("callout-")) {
+          const type = id.slice("callout-".length);
+          run((view) => insertCallout(view, type));
+        }
+        break;
+    }
+  };
+  const runEditorAction = useCallback((id: string) => runEditorActionRef.current(id), []);
+
+  // ── Editor paste: asset archive & app-clipboard links ──────────────
+  /** Import clipboard files into the assets folder, then insert their tags
+   * at the cursor. Runs after the paste event has been claimed. */
+  const archiveAndInsert = async (files: File[]) => {
+    const s = stateRef.current;
+    if (!s.currentFile || !s.root || !editorRef.current) return;
+    const destDir = assetDestDir(s.root, s.currentFile, s.assetsDir);
+    if (!destDir) return;
+    const tags: string[] = [];
+    try {
+      for (const f of files) {
+        // Screenshots arrive named ("image.png"); unnamed blobs fall back
+        // to the mime subtype so the archive keeps a usable extension.
+        const name =
+          f.name ||
+          (f.type.startsWith("image/") ? `image.${f.type.split("/")[1] || "bin"}` : "file");
+        const base = assetBaseName(s.currentFile, name);
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        const finalPath = await api.saveAsset(s.root, destDir, base, bytes);
+        const href = relativeLinkHref(s.currentFile, finalPath);
+        const label = linkLabel(name, "img");
+        tags.push(isImagePath(name) ? mdImageTag(label, href) : mdLinkTag(label, href));
+      }
+      if (tags.length > 0) {
+        editorRef.current.insertAtCursor(tags.join("\n"));
+      }
+    } catch (err) {
+      setError("资源归档失败: " + String(err));
+    }
+  };
+
+  const editorPasteRef = useRef<(p: PastePayload) => boolean>(() => false);
+  editorPasteRef.current = ({ files }) => {
+    const s = stateRef.current;
+    if (!s.currentFile || !s.root || !editorRef.current) return false;
+    // System clipboard files → archive as assets and insert tags.
+    if (files.length > 0) {
+      void archiveAndInsert(files);
+      return true;
+    }
+    // Tree-copied file → reference link; the file itself is not copied (md
+    // documents are referenced in place, not duplicated into assets).
+    const clip = clipRef.current;
+    if (clip && !clip.cut && clip.paths.length > 0) {
+      const target = clip.paths[0];
+      const href = relativeLinkHref(s.currentFile, target);
+      editorRef.current.insertAtCursor(
+        mdLinkTag(linkLabel(pathBasename(target), "doc"), href),
+      );
+      setInfo(`已插入对 "${pathBasename(target)}" 的引用链接`);
+      return true;
+    }
+    return false;
+  };
+  const handleEditorPasteFile = useCallback(
+    (p: PastePayload) => editorPasteRef.current(p),
+    [],
+  );
+
+  const cancelDraft = useCallback(() => setDraft(null), []);
+
+  const commitDraft = useCallback(
+    async (name: string) => {
+      const d = draft;
+      const s = stateRef.current;
+      setDraft(null);
+      if (!d || !s.root) return;
+      try {
+        if (d.kind === "rename") {
+          const target = pathJoin(pathDirname(d.targetPath), name);
+          if (target === d.targetPath) return;
+          await api.renameEntry(s.root, d.targetPath, target);
+          rescanTree();
+          // Track the open document across its rename.
+          if (s.currentFile === d.targetPath) {
+            setCurrentFile(target);
+            void api.setCurrentFile(target);
+            const nextRecent = recentFilesRef.current.map((p) =>
+              p === d.targetPath ? target : p,
+            );
+            recentFilesRef.current = nextRecent;
+            setRecentFiles(nextRecent);
+            persist({ lastFile: target, recentFiles: nextRecent });
+          }
+          setInfo(`已重命名为 "${name}"`);
+        } else if (d.kind === "new-file") {
+          const target = pathJoin(d.parentDir, ensureMdExt(name));
+          await api.createFile(s.root, target);
+          expandDir(d.parentDir);
+          rescanTree();
+          await openFile(target);
+        } else {
+          const target = pathJoin(d.parentDir, name);
+          await api.createDir(s.root, target);
+          expandDir(d.parentDir);
+          rescanTree();
+        }
+      } catch (err) {
+        setError("操作失败: " + String(err));
+      }
+    },
+    [draft, expandDir, openFile, persist, rescanTree],
+  );
+  /** Stable wrapper so the memoized Sidebar doesn't re-render on every tick. */
+  const handleCommitDraft = useCallback(
+    (name: string) => void commitDraft(name),
+    [commitDraft],
+  );
+
+  /** 新建子文档并引用: create an .md sibling of the current document and
+   * insert a relative link at the cursor. */
+  const commitSubdoc = useCallback(async () => {
+    const s = stateRef.current;
+    const name = subdocName.trim();
+    if (!name || !s.currentFile || !s.root) return;
+    const dir = pathDirname(s.currentFile);
+    const fileName = ensureMdExt(name);
+    // Same validation the tree's inline rename runs, against the same
+    // sibling set, so conflicts surface before the round-trip.
+    const siblings = (findTreeNode(treeRef.current, dir)?.children ?? []).map((c) => c.name);
+    const nameErr = entryNameError(fileName, siblings);
+    if (nameErr) {
+      setInfo(nameErr);
+      return;
+    }
+    const target = pathJoin(dir, fileName);
+    try {
+      await api.createFile(s.root, target);
+      const href = relativeLinkHref(s.currentFile, target);
+      editorRef.current?.insertAtCursor(mdLinkTag(stemOf(fileName), href));
+      setSubdocOpen(false);
+      rescanTree();
+      setInfo(`已创建 "${fileName}" 并插入引用`);
+    } catch (err) {
+      setError("创建子文档失败: " + String(err));
+    }
+  }, [subdocName, rescanTree]);
 
   // Share session: mirror the dirty flag so viewers see a "本机有未保存修改"
   // hint (initial state on join + live flips via the server broadcast).
@@ -950,6 +1652,29 @@ export default function App() {
     );
   }, [zenOn, zenCfg]);
 
+  // Suppress the webview's default context menu everywhere except text-entry
+  // surfaces. The file tree layers its own menu on top via onContextMenu
+  // handlers; the CodeMirror editor gets the formatting/insertion menu in
+  // place of the native cut/copy/paste entries.
+  useEffect(() => {
+    const onCtx = (e: MouseEvent) => {
+      const t = e.target;
+      if (t instanceof Element && t.closest(".cm-editor")) {
+        openEditorMenuRef.current(e);
+        return;
+      }
+      if (
+        t instanceof Element &&
+        t.closest("input, textarea, select, [contenteditable]")
+      ) {
+        return;
+      }
+      e.preventDefault();
+    };
+    document.addEventListener("contextmenu", onCtx);
+    return () => document.removeEventListener("contextmenu", onCtx);
+  }, []);
+
   // Global shortcuts, handled in the capture phase so they win over the
   // focused editor (CodeMirror) and stay identical on every platform. This
   // is the primary path on Windows, where native menu accelerators do not
@@ -957,6 +1682,54 @@ export default function App() {
   // Ctrl+E (and the older search/zen chords) would silently do nothing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // F2 renames the active file; Delete deletes the focused tree row.
+      // Both are no-ops while typing in any input (incl. the inline rename
+      // field) and while an inline edit is already open.
+      if (
+        !e.repeat &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        (e.key === "F2" || e.key === "Delete") &&
+        !(e.target instanceof HTMLElement && e.target.closest("input, textarea, select, [contenteditable]"))
+      ) {
+        if (e.key === "F2") {
+          const s = stateRef.current;
+          if (
+            s.root &&
+            s.currentFile &&
+            sidebarVisible &&
+            !draft &&
+            isInsideRoot(s.root, s.currentFile)
+          ) {
+            e.preventDefault();
+            e.stopPropagation();
+            setCtxMenu(null);
+            setDraft({
+              kind: "rename",
+              targetPath: s.currentFile,
+              initial: pathBasename(s.currentFile),
+            });
+          }
+          return;
+        }
+        const row =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement.closest<HTMLElement>(".tree-row[data-path]")
+            : null;
+        const p = row?.dataset.path;
+        if (p) {
+          const node = findTreeNode(treeRef.current, p);
+          if (node) {
+            e.preventDefault();
+            e.stopPropagation();
+            setCtxMenu(null);
+            ctxTargetRef.current = node;
+            treeActionRef.current("delete");
+          }
+        }
+        return;
+      }
       const action = matchShortcut(e, {
         quickOpen,
         findOpen,
@@ -965,6 +1738,7 @@ export default function App() {
         fullscreenOn,
         hasDoc: !!stateRef.current.doc,
         mode: stateRef.current.mode,
+        editorFocused: editorFocusedRef.current,
       });
       if (!action) return;
       e.preventDefault();
@@ -1025,7 +1799,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, openQuickOpen, openFind, chooseFolder, chooseFile, saveDoc, exportHtml, fullscreenOn, zenOn, quickOpen, findOpen, settingsOpen]);
+  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, openQuickOpen, openFind, chooseFolder, chooseFile, saveDoc, exportHtml, fullscreenOn, zenOn, quickOpen, findOpen, settingsOpen, sidebarVisible, draft]);
 
   // The reader gutters (left/right of the centered 860px body) belong to the
   // overflow-hidden wrapper, so the wheel hits a dead zone there — forward it
@@ -1077,6 +1851,7 @@ export default function App() {
           setEditorSide(normalizeSide(cfg.split.editorSide));
           setSplitRatio(normalizeRatio(cfg.split.ratio));
         }
+        setAssetsDir(cfg.assetsDir ?? null);
         if (cfg.lastFolder) await openFolder(cfg.lastFolder);
         if (pending) await openFile(pending);
         else if (cfg.lastFile) await openFile(cfg.lastFile);
@@ -1284,6 +2059,13 @@ export default function App() {
             activeFile={currentFile}
             activeHeading={activeHeading}
             hasFolder={root !== null}
+            rootPath={root}
+            expanded={expanded}
+            onToggle={toggleExpanded}
+            draft={draft}
+            onCommitDraft={handleCommitDraft}
+            onCancelDraft={cancelDraft}
+            onNodeContextMenu={openTreeMenu}
             onOpenFile={openFile}
             onJump={jumpToHeading}
           />
@@ -1296,7 +2078,7 @@ export default function App() {
                   {doc.chunked ? (
                     <ChunkedReader
                       ref={chunkedReaderRef}
-                      key={doc.chunked.token}
+                      key={`${doc.chunked.token}-${readRev}`}
                       meta={doc.chunked}
                       path={currentFile ?? ""}
                       dark={themeDark}
@@ -1348,8 +2130,11 @@ export default function App() {
                           onSave={saveDoc}
                           onScroll={handleEditorScroll}
                           onOpenLink={handleOpenLink}
+                          onPasteFile={handleEditorPasteFile}
                           onViewReady={handleEditorViewReady}
                           onViewDestroy={handleEditorViewDestroy}
+                          onFocusChange={handleEditorFocusChange}
+                          onSlashTrigger={handleSlashTrigger}
                         />
                       </Suspense>
                       {findOpen && (
@@ -1396,8 +2181,11 @@ export default function App() {
                       onChange={handleEditorChange}
                       onSave={saveDoc}
                       onOpenLink={handleOpenLink}
+                      onPasteFile={handleEditorPasteFile}
                       onViewReady={handleEditorViewReady}
                       onViewDestroy={handleEditorViewDestroy}
+                      onFocusChange={handleEditorFocusChange}
+                      onSlashTrigger={handleSlashTrigger}
                     />
                   </Suspense>
                   {findOpen && (
@@ -1521,6 +2309,7 @@ export default function App() {
           recent={recentFiles}
           tree={tree}
           initialContent={quickContent}
+          initialQuery={quickQuery}
           onClose={() => setQuickOpen(false)}
           onOpenFile={(path) => {
             setQuickOpen(false);
@@ -1528,6 +2317,71 @@ export default function App() {
           }}
           onOpenHit={handleSearchHit}
         />
+      )}
+
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          entries={ctxMenu.entries}
+          onClose={closeCtxMenu}
+          onSelect={runTreeAction}
+        />
+      )}
+
+      {editorMenu && (
+        <ContextMenu
+          x={editorMenu.x}
+          y={editorMenu.y}
+          entries={editorMenu.entries}
+          onClose={closeEditorMenu}
+          onSelect={runEditorAction}
+        />
+      )}
+
+      {slashMenu && (
+        <ContextMenu
+          x={slashMenu.x}
+          y={slashMenu.y}
+          entries={slashMenu.entries}
+          onClose={closeSlashMenu}
+          onSelect={runSlashAction}
+        />
+      )}
+
+      {subdocOpen && (
+        <div className="modal-mask" onClick={() => setSubdocOpen(false)}>
+          <div className="modal subdoc-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>新建子文档并引用</h2>
+            <label className="setting-row">
+              <span>文件名</span>
+              <input
+                type="text"
+                value={subdocName}
+                placeholder="子文档标题"
+                spellCheck={false}
+                autoFocus
+                onChange={(e) => setSubdocName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void commitSubdoc();
+                  else if (e.key === "Escape") setSubdocOpen(false);
+                }}
+                style={{ width: 200 }}
+              />
+            </label>
+            <p className="setting-hint">
+              将在当前文档同目录创建 Markdown 文件,并在光标处插入指向它的链接。
+            </p>
+            <div className="modal-actions">
+              <button className="primary-btn secondary" onClick={() => setSubdocOpen(false)}>
+                取消
+              </button>
+              <button className="primary-btn" onClick={() => void commitSubdoc()}>
+                创建并引用
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {settingsOpen && (
@@ -1659,6 +2513,28 @@ export default function App() {
             </p>
             <p className="setting-hint">
               端口修改后,下次启动预览服务生效。当前主题:{THEME_LABELS[themeName]}
+            </p>
+            <div className="setting-divider">粘贴资源 (assets)</div>
+            <label className="setting-row">
+              <span>资源归档目录</span>
+              <input
+                type="text"
+                value={assetsDir ?? ""}
+                placeholder="assets"
+                spellCheck={false}
+                onChange={(e) => setAssetsDir(e.target.value)}
+                onBlur={(e) => {
+                  const v =
+                    e.target.value.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "") || null;
+                  setAssetsDir(v);
+                  persist({ assetsDir: v });
+                }}
+                style={{ width: 160 }}
+              />
+            </label>
+            <p className="setting-hint">
+              在源码/分屏模式中粘贴图片或文件时，资源会归档到 assets 目录并以「文档名前10字符_时间戳.扩展名」命名，同时在光标处插入相对链接。
+              目录相对工作区根（默认 assets，可改）；当前文档在工作区外时，资源归档到文档同目录的 assets 下。
             </p>
             <div className="setting-divider">关于与更新</div>
             <div className="setting-row">

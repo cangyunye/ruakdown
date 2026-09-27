@@ -1,0 +1,14 @@
+cargo test --lib
+test result: ok. 71 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.22s
+新增: core::markdown::tests::img_rewrite_resolves_parent_climbs
+  断言 ../../assets/pic.png 重写后的 asset URL 不含 ".."，且为 F%3A%5Cws%5Cassets%5Cpic.png
+
+pnpm test
+ Test Files  16 passed (16)
+      Tests  211 passed (211)
+新增: fileOps assetDestDir
+  - 工作区内文档 → root/assets（原行为，自定义 assetsDir 生效）
+  - 根外/无根文档 → 文档同目录 assets；无文档 → null
+
+pnpm build (tsc && vite build)
+✓ built in 413ms

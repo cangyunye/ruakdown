@@ -1,0 +1,13 @@
+pnpm test
+ Test Files  17 passed (17)
+      Tests  218 passed (218)
+新增:
+- src/editorMenuEntries.test.ts (4) —— slash 变体不含 cut/copy/paste/new-subdoc；
+  插入条目与右键菜单一致；无前导分隔线；callout 彩点
+- src/editorCommands.test.ts +3 slashTrigger —— 键入 / 触发；IME 、 触发；
+  程序化插入/粘贴不触发（经真实 EditorView updateListener 捕获）
+
+pnpm build (tsc && vite build)
+✓ built in 435ms
+
+关键实现事实：ViewUpdate 无 userEvent 属性，需 update.transactions.some(tr => tr.isUserEvent("input.type"))

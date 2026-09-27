@@ -264,6 +264,17 @@ body {
   color: var(--accent);
 }
 
+/* Leading glyph slot for context-menu items with icons (same box as the
+ * check so icon and non-icon rows stay aligned). */
+.tb-menu-icon {
+  flex: none;
+  width: 15px;
+  display: inline-flex;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+}
+
 .tb-menu-label {
   flex: 1 1 auto;
   min-width: 0;
@@ -572,6 +583,60 @@ body {
 
 .outline-row {
   display: block;
+}
+
+/* ---------- file-tree context menu & inline edit ---------- */
+
+.ctx-menu {
+  position: fixed;
+  top: auto;
+  right: auto;
+  transform-origin: top left;
+}
+
+.ctx-menu .tb-menu-item.danger {
+  color: #dc2626;
+}
+
+.ctx-menu .tb-menu-item.danger:hover,
+.ctx-menu .tb-menu-item.danger:focus-visible {
+  background: rgba(220, 38, 38, 0.12);
+}
+
+:root[data-scheme="dark"] .ctx-menu .tb-menu-item.danger {
+  color: #f87171;
+}
+
+.ctx-menu .tb-menu-item.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ctx-menu .tb-menu-item.disabled:hover,
+.ctx-menu .tb-menu-item.disabled:focus-visible {
+  background: transparent;
+}
+
+.tree-rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 4px;
+  outline: none;
+}
+
+.tree-rename.invalid {
+  border-color: #dc2626;
+}
+
+.tree-row.renaming,
+.tree-row.draft-row {
+  cursor: text;
 }
 
 /* ---------- reader ---------- */

@@ -1,7 +1,8 @@
 #[cfg(feature = "share")]
 use crate::core::serve;
 use crate::core::{
-    config as config_store, export, file, large_doc, link, markdown, preview, search, theme, watch,
+    config as config_store, export, file, fsops, large_doc, link, markdown, preview, search, theme,
+    watch,
 };
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -81,6 +82,32 @@ pub async fn pick_image(app: AppHandle) -> Result<Option<String>, String> {
     Ok(picked.map(|p| dunce::simplified(&p).to_string_lossy().into_owned()))
 }
 
+/// Insert-asset dialog: leads with the image filter (the common case) and
+/// keeps a catch-all so any file can be referenced. Unlike pick_file, whose
+/// first (default) filter is Markdown.
+#[tauri::command]
+pub async fn pick_asset(app: AppHandle) -> Result<Option<String>, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .add_filter(
+            "图片",
+            &["png", "jpg", "jpeg", "webp", "bmp", "gif", "avif", "svg"],
+        )
+        .add_filter("所有文件", &["*"])
+        .pick_file(move |fp| {
+            let _ = tx.send(fp.map(|f| f.into_path()).transpose());
+        });
+    let picked: Option<PathBuf> = tauri::async_runtime::spawn_blocking(move || {
+        rx.recv()
+            .map_err(|_| "dialog closed".to_string())?
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(picked.map(|p| dunce::simplified(&p).to_string_lossy().into_owned()))
+}
+
 #[tauri::command]
 pub async fn load_tree(root: String) -> Result<Vec<file::TreeNode>, String> {
     // Directory scan can take a while on big folders; keep it off the main thread.
@@ -90,6 +117,159 @@ pub async fn load_tree(root: String) -> Result<Vec<file::TreeNode>, String> {
             return Err(format!("not a directory: {root}"));
         }
         Ok(file::build_tree(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ── Sidebar file-tree operations (context menu) ────────────────────
+// Thin wrappers over core::fsops; every path is validated to stay inside
+// the workspace root, and all filesystem work runs off the main thread.
+
+/// Create an empty file; fails if it already exists (create_new).
+#[tauri::command]
+pub async fn create_file(root: String, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(&root);
+        let p = PathBuf::from(&path);
+        fsops::ensure_inside(&root, &p)?;
+        fsops::validate_entry_name(&fsops::entry_name(&p)?)?;
+        if let Some(parent) = p.parent() {
+            if !parent.is_dir() {
+                return Err(format!("父目录不存在: {}", parent.display()));
+            }
+        }
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&p)
+            .map_err(|e| format!("创建文件失败: {e}"))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Create a single directory; fails if it already exists.
+#[tauri::command]
+pub async fn create_dir(root: String, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(&root);
+        let p = PathBuf::from(&path);
+        fsops::ensure_inside(&root, &p)?;
+        fsops::validate_entry_name(&fsops::entry_name(&p)?)?;
+        if let Some(parent) = p.parent() {
+            if !parent.is_dir() {
+                return Err(format!("父目录不存在: {}", parent.display()));
+            }
+        }
+        std::fs::create_dir(&p).map_err(|e| format!("创建文件夹失败: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Rename (or move) one entry; fails if the target already exists.
+#[tauri::command]
+pub async fn rename_entry(root: String, from: String, to: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(&root);
+        let from = PathBuf::from(&from);
+        let to = PathBuf::from(&to);
+        fsops::ensure_inside(&root, &from)?;
+        fsops::ensure_inside(&root, &to)?;
+        fsops::validate_entry_name(&fsops::entry_name(&to)?)?;
+        if from == to {
+            return Ok(());
+        }
+        if to.exists() {
+            return Err(format!("目标已存在: {}", to.display()));
+        }
+        std::fs::rename(&from, &to).map_err(|e| format!("重命名失败: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Move an entry to the recycle bin (never a permanent delete).
+#[tauri::command]
+pub async fn trash_entry(root: String, path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = PathBuf::from(&root);
+        let p = PathBuf::from(&path);
+        fsops::ensure_inside(&root, &p)?;
+        trash::delete(&p).map_err(|e| format!("移入回收站失败: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ── Pasted-resource archive (assets) ───────────────────────────────
+// Both return the final (uniquified) absolute path so the frontend can
+// build a document-relative markdown link from it.
+
+/// Write pasted bytes (clipboard file / screenshot) into the assets folder.
+#[tauri::command]
+pub async fn save_asset(
+    root: String,
+    dest_dir: String,
+    base_name: String,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = fsops::write_asset(&PathBuf::from(&root), &PathBuf::from(&dest_dir), &base_name, &bytes)?;
+        Ok(dunce::simplified(&out).to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Copy an existing file into the assets folder under a new name.
+#[tauri::command]
+pub async fn import_asset(
+    root: String,
+    src: String,
+    dest_dir: String,
+    base_name: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = fsops::import_asset(
+            &PathBuf::from(&root),
+            &PathBuf::from(&src),
+            &PathBuf::from(&dest_dir),
+            &base_name,
+        )?;
+        Ok(dunce::simplified(&out).to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Copy entries into `dest_dir` under non-conflicting names (" - 副本").
+/// Returns how many entries were actually copied.
+#[tauri::command]
+pub async fn copy_entries(
+    root: String,
+    paths: Vec<String>,
+    dest_dir: String,
+) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fsops::copy_entries(&PathBuf::from(&root), &paths, &PathBuf::from(&dest_dir))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Move entries into `dest_dir` (rename within the workspace volume).
+/// Returns how many entries were actually moved.
+#[tauri::command]
+pub async fn move_entries(
+    root: String,
+    paths: Vec<String>,
+    dest_dir: String,
+) -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        fsops::move_entries(&PathBuf::from(&root), &paths, &PathBuf::from(&dest_dir))
     })
     .await
     .map_err(|e| e.to_string())?

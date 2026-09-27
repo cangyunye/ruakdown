@@ -110,6 +110,9 @@ export interface AppConfig {
   split: SplitConfig | null;
   /** Recently opened file paths (most recent first, max 15). */
   recentFiles?: string[] | null;
+  /** Archive folder for pasted resources, relative to the workspace root;
+   * null/empty means the frontend default "assets". */
+  assetsDir?: string | null;
 }
 
 export interface Theme {
@@ -152,7 +155,31 @@ export const api = {
   pickFolder: () => invoke<string | null>("pick_folder"),
   pickFile: () => invoke<string | null>("pick_file"),
   pickImage: () => invoke<string | null>("pick_image"),
+  /** Insert-asset dialog: images filter first, any file via the catch-all. */
+  pickAsset: () => invoke<string | null>("pick_asset"),
   loadTree: (root: string) => invoke<TreeNode[]>("load_tree", { root }),
+  /** Sidebar context-menu operations. All paths are re-validated inside the
+   * Rust commands (root containment + Windows name rules). */
+  createFile: (root: string, path: string) => invoke<void>("create_file", { root, path }),
+  createDir: (root: string, path: string) => invoke<void>("create_dir", { root, path }),
+  renameEntry: (root: string, from: string, to: string) =>
+    invoke<void>("rename_entry", { root, from, to }),
+  /** Move to the recycle bin (never a permanent delete). */
+  trashEntry: (root: string, path: string) => invoke<void>("trash_entry", { root, path }),
+  /** Returns how many entries were actually copied. */
+  copyEntries: (root: string, paths: string[], destDir: string) =>
+    invoke<number>("copy_entries", { root, paths, destDir }),
+  /** Returns how many entries were actually moved. */
+  moveEntries: (root: string, paths: string[], destDir: string) =>
+    invoke<number>("move_entries", { root, paths, destDir }),
+  /** Archive pasted resource bytes into the assets folder (created on
+   * demand). Returns the final uniquified absolute path. */
+  saveAsset: (root: string, destDir: string, baseName: string, bytes: Uint8Array) =>
+    invoke<string>("save_asset", { root, destDir, baseName, bytes }),
+  /** Copy an existing file into the assets folder under a new name. Returns
+   * the final uniquified absolute path. */
+  importAsset: (root: string, src: string, destDir: string, baseName: string) =>
+    invoke<string>("import_asset", { root, src, destDir, baseName }),
   searchDocs: (root: string, query: string, caseSensitive: boolean) =>
     invoke<SearchOutcome>("search_docs", { root, query, caseSensitive }),
   openDoc: (path: string) => invoke<DocPayload>("open_doc", { path }),
