@@ -20,8 +20,8 @@ describe("buildEditorMenuEntries", () => {
     }
     // The insertion surface matches the context menu's.
     for (const kept of ["h1", "h6", "ul", "ol", "task", "quote", "callout-NOTE", "callout-clear",
-      "codeblock", "table", "hr", "mathblock", "mindmap", "link", "bold", "italic", "underline",
-      "strike", "mark", "sup", "sub", "inlinecode", "kbd", "inlinemath",
+      "codeblock", "table", "hr", "mathblock", "mindmap", "emoji", "link", "bold", "italic",
+      "underline", "strike", "mark", "sup", "sub", "inlinecode", "kbd", "inlinemath",
       "insert-asset", "insert-image-link", "insert-iframe", "insert-video", "insert-audio"]) {
       expect(list).toContain(kept);
     }

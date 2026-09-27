@@ -51,6 +51,7 @@ import { Sidebar, type SidebarTab } from "./components/Sidebar";
 import { Reader } from "./components/Reader";
 import QuickOpen from "./components/QuickOpen";
 import ContextMenu, { type CtxEntry } from "./components/ContextMenu";
+import EmojiPicker from "./components/EmojiPicker";
 import type { TreeDraft } from "./components/FileTree";
 import {
   assetDestDir,
@@ -229,6 +230,10 @@ export default function App() {
   const [editorMenu, setEditorMenu] = useState<{ x: number; y: number; entries: CtxEntry[] } | null>(
     null,
   );
+  // Anchor of the most recently opened editor menu / slash palette, reused
+  // by the emoji picker (which outlives the menu that launched it).
+  const menuAnchorRef = useRef<{ x: number; y: number }>({ x: 200, y: 160 });
+  const [emojiAt, setEmojiAt] = useState<{ x: number; y: number } | null>(null);
   // 新建子文档并引用 naming dialog.
   const [subdocOpen, setSubdocOpen] = useState(false);
   const [subdocName, setSubdocName] = useState("");
@@ -1205,6 +1210,7 @@ export default function App() {
     if (!s.doc) return;
     e.preventDefault();
     setCtxMenu(null);
+    menuAnchorRef.current = { x: e.clientX, y: e.clientY };
     setEditorMenu({ x: e.clientX, y: e.clientY, entries: buildEditorMenuEntries(true) });
   };
 
@@ -1224,6 +1230,7 @@ export default function App() {
       setEditorMenu(null);
       slashPosRef.current = t.pos;
       slashCharRef.current = t.char;
+      menuAnchorRef.current = { x: t.x, y: t.y };
       setSlashMenu({ x: t.x, y: t.y, entries: buildEditorMenuEntries(false) });
     },
     [],
@@ -1360,6 +1367,9 @@ export default function App() {
         break;
       case "mindmap":
         run(insertMindmap);
+        break;
+      case "emoji":
+        setEmojiAt(menuAnchorRef.current);
         break;
       case "link":
         run(insertLink);
@@ -2408,6 +2418,15 @@ export default function App() {
           onSelect={runSlashAction}
           autoFocus={false}
           windowKeyNav
+        />
+      )}
+
+      {emojiAt && (
+        <EmojiPicker
+          x={emojiAt.x}
+          y={emojiAt.y}
+          onPick={(emoji) => editorRef.current?.insertAtCursor(emoji)}
+          onClose={() => setEmojiAt(null)}
         />
       )}
 

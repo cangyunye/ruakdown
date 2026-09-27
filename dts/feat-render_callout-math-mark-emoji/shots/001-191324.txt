@@ -1,0 +1,18 @@
+cargo test --lib
+test result: ok. 78 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.23s
+新增: gfm_alert_blockquotes_carry_their_classes / plain_blockquotes_stay_plain /
+     tex_math_becomes_mathml / unparseable_tex_falls_back_to_literal_source /
+     mark_syntax_wraps_but_never_touches_code / mark_edge_cases_stay_literal /
+     export_carries_callouts_math_and_marks
+
+pnpm test
+ Test Files  19 passed (19)
+      Tests  231 passed (231)
+新增: EmojiPicker 4 项（选择/换分类/Esc 与外部关闭/不抢焦点）、editorMenuEntries 变体含 emoji
+
+pnpm build (tsc && vite build)
+✓ built in 440ms
+
+关键实现: post_process_events = mark_events(math_events(highlight_code_events));
+md_options 增 ENABLE_GFM + ENABLE_MATH; latex2mathml 0.2.3 纯 Rust 转 MathML;
+前端 applyMarkSyntax 删除（Rust 单一实现覆盖四管线）。

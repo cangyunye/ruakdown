@@ -32,6 +32,12 @@ pub(crate) fn md_options() -> Options {
     // Frontmatter: parsed (and silenced by push_html), surfaced as a property
     // card by `frontmatter::card_html`.
     opts.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
+    // GitHub alert blockquotes ([!NOTE] …): rendered as classed blockquotes,
+    // styled and titled by md-content.css.
+    opts.insert(Options::ENABLE_GFM);
+    // $…$ / $$…$$ TeX: emitted as InlineMath/DisplayMath events, converted to
+    // MathML by the shared event post-processor.
+    opts.insert(Options::ENABLE_MATH);
     opts
 }
 
@@ -77,7 +83,7 @@ pub fn render_markdown(source: &str) -> RenderedDoc {
         .unwrap_or_default();
 
     let mut html_out = String::with_capacity(source.len() * 2);
-    html::push_html(&mut html_out, highlight_code_events(events).into_iter());
+    html::push_html(&mut html_out, post_process_events(events).into_iter());
     let html_out = inject_heading_ids(&html_out, &outline);
     let html = if frontmatter_card.is_empty() {
         html_out
@@ -118,6 +124,96 @@ pub(crate) fn highlight_code_events(events: Vec<Event>) -> Vec<Event> {
         }
     }
     out
+}
+
+/// Shared event post-processing for every rendering pipeline (reader, split
+/// chunks, export, LAN share): syntax-highlight code blocks, convert TeX to
+/// MathML, wrap ==marked== runs. One place of truth is what keeps the four
+/// pipelines rendering identically. Order matters: code first (its text must
+/// never be math- or mark-processed), then math, then mark.
+pub(crate) fn post_process_events(events: Vec<Event>) -> Vec<Event> {
+    mark_events(math_events(highlight_code_events(events)))
+}
+
+/// Replace math events with MathML rendered from the TeX source. MathML is
+/// native markup (WebView2 / modern browsers render it without any JS engine
+/// or font assets) and travels with exported HTML for free. Unparseable TeX
+/// falls back to the literal source in a styled span.
+fn math_events(events: Vec<Event>) -> Vec<Event> {
+    events
+        .into_iter()
+        .map(|event| {
+            let (tex, display) = match event {
+                Event::InlineMath(tex) => (tex, false),
+                Event::DisplayMath(tex) => (tex, true),
+                other => return other,
+            };
+            Event::Html(math_html(&tex, display).into())
+        })
+        .collect()
+}
+
+/// HTML for one TeX run; falls back to the escaped literal source when the
+/// converter rejects it, so the reader still sees what was written.
+fn math_html(tex: &str, display: bool) -> String {
+    use latex2mathml::{latex_to_mathml, DisplayStyle};
+    let style = if display { DisplayStyle::Block } else { DisplayStyle::Inline };
+    let kind = if display { "display" } else { "inline" };
+    match latex_to_mathml(tex, style) {
+        Ok(mathml) => format!("<span class=\"math math-{kind}\">{mathml}</span>"),
+        Err(_) => format!(
+            "<span class=\"math math-{kind} math-raw\" title=\"TeX 解析失败\">{}</span>",
+            escape_html(tex)
+        ),
+    }
+}
+
+/// Wrap `==text==` runs into `<mark>`. Runs on text events only, after code
+/// blocks became raw HTML — so code content is never marked. Content must
+/// stay on one line and contain no `=` (matching the DOM pass this replaced).
+fn mark_events(events: Vec<Event>) -> Vec<Event> {
+    events
+        .into_iter()
+        .map(|event| match event {
+            Event::Text(text) => match mark_text_html(&text) {
+                Some(html) => Event::Html(html.into()),
+                None => Event::Text(text),
+            },
+            other => other,
+        })
+        .collect()
+}
+
+/// HTML for a text run with its `==…==` spans wrapped in `<mark>`, or None
+/// when the run holds no valid span. Everything else is escaped.
+fn mark_text_html(text: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut rest = text;
+    let mut hit = false;
+    while let Some(start) = rest.find("==") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("==") else { break };
+        let content = &after[..end];
+        if content.is_empty() || content.contains('=') || content.contains('\n') {
+            // Not a valid span: keep the opening markers literal and look
+            // for the next candidate after them.
+            out.push_str(&escape_html(&rest[..start + 2]));
+            rest = &rest[start + 2..];
+            hit = true;
+            continue;
+        }
+        out.push_str(&escape_html(&rest[..start]));
+        out.push_str("<mark>");
+        out.push_str(&escape_html(content));
+        out.push_str("</mark>");
+        rest = &after[end + 2..];
+        hit = true;
+    }
+    if !hit {
+        return None;
+    }
+    out.push_str(&escape_html(rest));
+    Some(out)
 }
 
 /// Wrap highlighted code in the same shape pulldown-cmark emits
@@ -519,6 +615,63 @@ mod tests {
         let plain = render_markdown("# A\n\ntext\n\n---\n\nmore\n");
         assert!(plain.html.contains("<hr"));
         assert!(!plain.html.contains("md-frontmatter"));
+    }
+
+    #[test]
+    fn gfm_alert_blockquotes_carry_their_classes() {
+        for (marker, class) in [
+            ("NOTE", "markdown-alert-note"),
+            ("TIP", "markdown-alert-tip"),
+            ("IMPORTANT", "markdown-alert-important"),
+            ("WARNING", "markdown-alert-warning"),
+            ("CAUTION", "markdown-alert-caution"),
+        ] {
+            let doc = render_markdown(&format!("> [!{marker}]\n> 内容\n"));
+            assert!(doc.html.contains(class), "{marker}: {}", doc.html);
+            assert!(!doc.html.contains("[!"), "{marker} marker leaked: {}", doc.html);
+        }
+    }
+
+    #[test]
+    fn plain_blockquotes_stay_plain() {
+        let doc = render_markdown("> 普通引用\n");
+        assert!(doc.html.contains("<blockquote>"), "{}", doc.html);
+        assert!(!doc.html.contains("markdown-alert"), "{}", doc.html);
+    }
+
+    #[test]
+    fn tex_math_becomes_mathml() {
+        let doc = render_markdown("行内 $a^2$ 与块级:\n\n$$\n\\frac{1}{2}\n$$\n");
+        assert!(doc.html.contains("math-inline"), "{}", doc.html);
+        assert!(doc.html.contains("math-display"), "{}", doc.html);
+        assert!(doc.html.contains("<math"), "{}", doc.html);
+        assert!(doc.html.contains("display=\"block\""), "{}", doc.html);
+    }
+
+    #[test]
+    fn unparseable_tex_falls_back_to_literal_source() {
+        let html = math_html("\\begin{nosuchenv}x\\end{nosuchenv}", false);
+        assert!(html.contains("math-raw"), "{html}");
+        assert!(html.contains("nosuchenv"), "{html}");
+        assert!(math_html("x^2", false).contains("<math"));
+    }
+
+    #[test]
+    fn mark_syntax_wraps_but_never_touches_code() {
+        let doc = render_markdown("重点 ==标记== 与 `==代码==`\n\n```\n==非标记==\n```\n");
+        assert!(doc.html.contains("<mark>标记</mark>"), "{}", doc.html);
+        assert!(doc.html.contains("<code>==代码==</code>"), "{}", doc.html);
+        assert!(doc.html.contains("==非标记=="), "{}", doc.html);
+        assert!(!doc.html.contains("<mark>非标记</mark>"), "{}", doc.html);
+    }
+
+    #[test]
+    fn mark_edge_cases_stay_literal() {
+        let doc = render_markdown("====");
+        assert!(!doc.html.contains("<mark>"), "{}", doc.html);
+        assert!(doc.html.contains("===="), "{}", doc.html);
+        let doc2 = render_markdown("==a=b==");
+        assert!(!doc2.html.contains("<mark>"), "{}", doc2.html);
     }
 
     #[test]

@@ -3,7 +3,6 @@ import type { DocPayload } from "../ipc";
 import { renderMermaidBlocks } from "../mermaid";
 import { attachImageZoom } from "../imgZoom";
 import {
-  applyMarkSyntax,
   trackZenFocus,
   unwrapZenSections,
   wrapZenSections,
@@ -100,12 +99,6 @@ export function Reader({
       el.removeEventListener("scroll", onScroll);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [doc]);
-
-  // ==mark== syntax: rerun after each render; idempotent (marks are skipped).
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (el) applyMarkSyntax(el);
   }, [doc]);
 
   // Zen mode: split into sections and track the one at the viewport middle.

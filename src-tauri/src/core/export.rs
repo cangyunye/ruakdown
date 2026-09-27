@@ -124,4 +124,20 @@ mod tests {
         assert!(html.contains(".md-body h1"), "shared content styles embedded");
         assert!(html.contains(".md-frontmatter"), "frontmatter card styles embedded");
     }
+
+    #[test]
+    fn export_carries_callouts_math_and_marks() {
+        let source = "> [!NOTE]\n> 提示内容\n\n行内 $a^2$ 与 ==高亮==\n";
+        let html = export_html(
+            source,
+            None,
+            &ExportOptions { theme_id: "light".into(), title: "t".into() },
+        );
+        assert!(html.contains("markdown-alert-note"), "{}", html);
+        assert!(html.contains("<mark>高亮</mark>"), "{}", html);
+        assert!(html.contains("<math"), "{}", html);
+        // The alert palette and math layout ride in the shared content CSS.
+        assert!(html.contains(".markdown-alert-caution"), "{}", html);
+        assert!(html.contains(".math-display"), "{}", html);
+    }
 }

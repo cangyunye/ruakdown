@@ -17,45 +17,6 @@ const FOCUS_BAND = 0.45;
  * edges (trackpads jitter a few px around a clamp). */
 const EDGE_SLACK = 2;
 
-/** Mark-syntax support: wrap ==text== into <mark>. Skips pre/code/checkbox
- * and existing marks, so it is safe to run repeatedly after each render. */
-export function applyMarkSyntax(container: HTMLElement): void {
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const parent = (node as Text).parentElement;
-      if (!parent) return NodeFilter.FILTER_REJECT;
-      if (parent.closest("pre, code, mark, textarea")) {
-        return NodeFilter.FILTER_REJECT;
-      }
-      return node.nodeValue && node.nodeValue.includes("==")
-        ? NodeFilter.FILTER_ACCEPT
-        : NodeFilter.FILTER_REJECT;
-    },
-  });
-  // Collect first: replacing nodes while walking would skip siblings.
-  const hits: Text[] = [];
-  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-    hits.push(n as Text);
-  }
-  for (const node of hits) {
-    const text = node.nodeValue ?? "";
-    const pattern = /==([^=\n][^=\n]*?)==/;
-    if (!pattern.test(text)) continue;
-    const frag = document.createDocumentFragment();
-    let rest = text;
-    let m: RegExpExecArray | null;
-    while ((m = pattern.exec(rest))) {
-      if (m.index > 0) frag.appendChild(document.createTextNode(rest.slice(0, m.index)));
-      const mark = document.createElement("mark");
-      mark.textContent = m[1];
-      frag.appendChild(mark);
-      rest = rest.slice(m.index + m[0].length);
-    }
-    if (rest) frag.appendChild(document.createTextNode(rest));
-    node.parentNode?.replaceChild(frag, node);
-  }
-}
-
 function countHeadings(container: HTMLElement): Record<ZenTag, number> {
   const counts: Record<ZenTag, number> = { h1: 0, h2: 0, h3: 0 };
   for (const el of container.children) {

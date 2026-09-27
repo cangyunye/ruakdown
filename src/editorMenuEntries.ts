@@ -59,6 +59,7 @@ export function buildEditorMenuEntries(includeClipboard: boolean): CtxEntry[] {
     { type: "item", id: "mathblock", label: "公式块" },
     { type: "item", id: "mindmap", label: "思维导图" },
     { type: "sep" },
+    { type: "item", id: "emoji", label: "表情", icon: "🙂" },
     { type: "item", id: "link", label: "链接", shortcut: `${MOD_KEY}+K` },
     { type: "item", id: "bold", label: "粗体", shortcut: `${MOD_KEY}+B` },
     { type: "item", id: "italic", label: "斜体", shortcut: `${MOD_KEY}+I` },

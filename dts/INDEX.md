@@ -1,6 +1,12 @@
 # dts 问题档案索引
 
-共 11 条 · 未解决 0 · 已解决 11 · 更新于 2026-09-27T18:49:34+08:00
+共 12 条 · 未解决 0 · 已解决 12 · 更新于 2026-09-27T19:13:30+08:00
+
+## feat-render
+
+| id | 日期 | 摘要 | 状态 |
+|----|------|------|------|
+| [feat-render_callout-math-mark-emoji](feat-render_callout-math-mark-emoji/dts.md) | 2026-09-27 | 推进二期：GitHub 提示块解析渲染、公式渲染、==标记== 补齐分屏预览/导出、表情选择面板 | resolved |
 
 ## fix-editor-menu
 

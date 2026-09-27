@@ -36,6 +36,7 @@ syntect = { version = "5", default-features = false, features = ["default-fancy"
 imagesize = "0.13"
 # 回收站删除(侧边栏右键删除):Windows 上移入回收站而非永久删除。
 trash = "5"
+latex2mathml = "0.2.3"
 
 [features]
 default = []

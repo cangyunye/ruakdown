@@ -1725,3 +1725,69 @@ html.split-resizing * {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---------- emoji picker ---------- */
+
+.emoji-panel {
+  position: fixed;
+  z-index: 500;
+  width: 292px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow:
+    0 10px 36px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+  animation: tb-menu-in 0.13s ease;
+}
+
+.emoji-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px 2px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.emoji-tab {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.emoji-tab:hover {
+  background: var(--hover);
+}
+
+.emoji-tab.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 6px 2px 2px;
+  max-height: 232px;
+  overflow-y: auto;
+}
+
+.emoji-btn {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.emoji-btn:hover {
+  background: var(--hover);
+}
