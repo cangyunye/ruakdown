@@ -5,9 +5,16 @@ import type { Mode } from "./split";
 export const MOD_KEY =
   typeof navigator !== "undefined" && /mac/i.test(navigator.platform) ? "⌘" : "Ctrl";
 
+/** Platform fork for chords that must not shadow platform conventions:
+ * on mac Alt+Arrows is word-wise caret movement, so document-history nav
+ * requires mod there; Windows follows the browser convention Alt+Arrows
+ * (Ctrl+Alt+Arrows can be display-rotation hotkeys). */
+export const IS_MAC =
+  typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+
 /** A global shortcut chord, normalized from a DOM KeyboardEvent. Only the
- * fields the router cares about are modelled; `altKey` is intentionally
- * ignored (same as the pre-existing handler's behaviour). */
+ * fields the router cares about are modelled; `altKey` is only consulted by
+ * the document-history chords (Alt+Arrows). */
 export interface ShortcutKey {
   key: string;
   ctrlKey: boolean;
@@ -53,6 +60,8 @@ export type ShortcutAction =
   | "save"
   | "export-html"
   | "toggle-sidebar"
+  | "doc-back"
+  | "doc-forward"
   | "zen-next"
   | "zen-prev"
   | "zen-exit"
@@ -125,6 +134,20 @@ export function matchShortcut(
   // away; Ctrl/Cmd+B follows the editor convention). In the editor the same
   // chord toggles bold, so the sidebar only reacts outside of it.
   if (mod && !e.shiftKey && key === "b" && !s.editorFocused) return "toggle-sidebar";
+  // Document history: back/forward via Alt+Arrows (mac requires mod in the
+  // chord — plain Alt+Arrows is word-wise caret movement there; the
+  // editorFocused gate keeps editor caret movement priority everywhere).
+  if (
+    e.altKey &&
+    (key === "arrowleft" || key === "arrowright") &&
+    (!IS_MAC || mod) &&
+    !s.editorFocused &&
+    !s.quickOpen &&
+    !s.findOpen &&
+    !s.settingsOpen
+  ) {
+    return key === "arrowleft" ? "doc-back" : "doc-forward";
+  }
   // Zen section navigation: ←/→ or j/k jump between sections; Esc exits zen
   // first, then fullscreen (modals/panels consume their own Esc before both).
   const zenContext =

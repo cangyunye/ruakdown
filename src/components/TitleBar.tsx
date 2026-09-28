@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { MOD_KEY } from "../shortcuts";
+import { IS_MAC, MOD_KEY } from "../shortcuts";
 import type { Mode } from "../split";
 
 /** True inside the Tauri webview, false in plain-browser `pnpm dev` and
@@ -415,6 +415,9 @@ export default function TitleBar({
       { type: "item", id: "open-folder", label: "打开文件夹…", shortcut: `${MOD_KEY}+Shift+O` },
       { type: "item", id: "quick-open", label: "快速打开…", shortcut: `${MOD_KEY}+P` },
       { type: "item", id: "search-dir", label: "目录内搜索…", shortcut: `${MOD_KEY}+Shift+F` },
+      { type: "sep" },
+      { type: "item", id: "doc-back", label: "后退(上一个文档)", shortcut: IS_MAC ? "⌘⌥←" : "Alt+←" },
+      { type: "item", id: "doc-forward", label: "前进(下一个文档)", shortcut: IS_MAC ? "⌘⌥→" : "Alt+→" },
       { type: "sep" },
       { type: "item", id: "find", label: "查找…", shortcut: `${MOD_KEY}+F` },
       { type: "item", id: "replace", label: "替换…", shortcut: `${MOD_KEY}+R` },

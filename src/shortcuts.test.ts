@@ -235,3 +235,43 @@ describe("matchShortcut · zen navigation and Esc layering", () => {
     expect(matchShortcut(press({ key: "ArrowRight" }), { ...zen, settingsOpen: true })).toBeNull();
   });
 });
+describe("matchShortcut · document history (Alt+Arrows)", () => {
+  it("navigates back/forward with plain Alt+Arrows outside the editor", () => {
+    expect(
+      matchShortcut(press({ key: "ArrowLeft", altKey: true }), idle),
+    ).toBe("doc-back");
+    expect(
+      matchShortcut(press({ key: "ArrowRight", altKey: true }), idle),
+    ).toBe("doc-forward");
+  });
+
+  it("yields to the editor caret (word-wise movement)", () => {
+    expect(
+      matchShortcut(press({ key: "ArrowLeft", altKey: true }), editor),
+    ).toBeNull();
+  });
+
+  it("stays out of open modals and panels", () => {
+    expect(
+      matchShortcut(press({ key: "ArrowLeft", altKey: true }), modal),
+    ).toBeNull();
+    expect(
+      matchShortcut(press({ key: "ArrowLeft", altKey: true }), {
+        ...idle,
+        findOpen: true,
+      }),
+    ).toBeNull();
+    expect(
+      matchShortcut(press({ key: "ArrowLeft", altKey: true }), {
+        ...idle,
+        settingsOpen: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores plain Arrows and non-arrow Alt chords", () => {
+    expect(matchShortcut(press({ key: "ArrowLeft" }), idle)).toBeNull();
+    expect(matchShortcut(press({ key: "ArrowUp", altKey: true }), idle)).toBeNull();
+    expect(matchShortcut(press({ key: "d", altKey: true }), idle)).toBeNull();
+  });
+});

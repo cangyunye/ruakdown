@@ -18,6 +18,14 @@ import { applyTheme } from "./theme";
 import { scrollToText } from "./jumpToText";
 import { openMarkdownLink } from "./links";
 import { decideFsChange, type SelfSaveMark } from "./changeDecision";
+import { createSaveCoordinator } from "./saveCoordinator";
+import {
+  emptyHistory,
+  popBack,
+  popForward,
+  pushVisit,
+  type DocHistory,
+} from "./docHistory";
 import { blockAtLine, headingOwners, lockAllows, nextSyncTarget, SYNC_LOCK_MS, type SyncLock } from "./scrollSync";
 import { matchShortcut } from "./shortcuts";
 import {
@@ -338,6 +346,17 @@ export default function App() {
   const editTextRef = useRef("");
   const dirtyRef = useRef(false);
   const autosaveTimer = useRef<number | null>(null);
+  // Save bookkeeping: in-flight serialization + dirty-flag arbitration for
+  // edits typed while a write is in progress (see saveCoordinator.ts).
+  const saveGate = useMemo(
+    () => createSaveCoordinator(dirtyRef, () => editTextRef.current, setDirty),
+    [],
+  );
+  const saveDocRef = useRef<() => Promise<void>>(async () => {});
+  const scheduleAutosaveRef = useRef<() => void>(() => {});
+  // Browser-style back/forward history of opened documents (mouse side
+  // buttons, title-bar menu and chords all share it).
+  const docHistoryRef = useRef<DocHistory>(emptyHistory());
   // Exit flow: `exitApproved` lets the confirmed re-close pass the
   // CloseRequested guard; `appExiting` keeps beforeunload from running its
   // best-effort save over a "不保存退出" decision.
@@ -375,24 +394,34 @@ export default function App() {
   const saveDoc = useCallback(async () => {
     const s = stateRef.current;
     const d = s.doc;
-    if (!s.currentFile || !d || !dirtyRef.current) return;
+    if (!s.currentFile || !d) return;
+    // A write already running coalesces this request into one follow-up
+    // instead of racing a second write to the same file.
+    if (!saveGate.begin()) return;
     if (autosaveTimer.current) {
       window.clearTimeout(autosaveTimer.current);
       autosaveTimer.current = null;
     }
+    const saved = editTextRef.current;
     try {
-      await api.saveFile(s.currentFile, editTextRef.current, d.encoding, d.eol);
+      await api.saveFile(s.currentFile, saved, d.encoding, d.eol);
       markSelfSave(s.currentFile);
-      dirtyRef.current = false;
-      setDirty(false);
       setExternalChange(false);
-      setDoc((prev) => (prev ? { ...prev, text: editTextRef.current } : prev));
+      setDoc((prev) => (prev ? { ...prev, text: saved } : prev));
+      if (!saveGate.complete(saved)) {
+        // Edits landed while the write was in flight: the dirty flag stays
+        // on and the debounce picks the newer buffer up.
+        scheduleAutosaveRef.current();
+      }
       // Live-reload for share viewers (no-op when the server is off).
       void api.serveNotifyChange().catch(() => {});
     } catch (err) {
+      saveGate.fail();
       setError("保存失败: " + String(err));
+    } finally {
+      if (saveGate.takeFollowUp()) void saveDocRef.current();
     }
-  }, [markSelfSave]);
+  }, [markSelfSave, saveGate]);
 
   const scheduleAutosave = useCallback(() => {
     if (!autosaveRef.current) return;
@@ -403,6 +432,19 @@ export default function App() {
       void saveDoc();
     }, 1500);
   }, [saveDoc]);
+  scheduleAutosaveRef.current = scheduleAutosave;
+  saveDocRef.current = saveDoc;
+
+  /** Disk gate before leaving the current doc (file/folder switch, view
+   * change, export, exit): wait out an in-flight save — including a merged
+   * follow-up — so a buffer reset can't drop the last input. Bounded
+   * retries so a persistently failing write can't hang the caller. */
+  const flushPendingSave = useCallback(async () => {
+    for (let i = 0; i < 3 && dirtyRef.current; i++) {
+      await saveDoc();
+      await saveGate.flush();
+    }
+  }, [saveDoc, saveGate]);
 
   const markDirty = useCallback(
     (text: string) => {
@@ -607,15 +649,18 @@ export default function App() {
   }, []);
 
   const openFile = useCallback(
-    async (path: string) => {
+    async (path: string, opts?: { history?: boolean }) => {
+      // The doc we leave behind is what back/forward navigates to.
+      const from = stateRef.current.currentFile;
       try {
         // Switching files with unsaved edits: save before leaving.
-        if (dirtyRef.current) {
-          await saveDoc();
-        }
+        await flushPendingSave();
         const d = await api.openDoc(path);
         setCurrentFile(path);
         setDoc(d);
+        if (opts?.history !== false) {
+          docHistoryRef.current = pushVisit(docHistoryRef.current, from, path);
+        }
         editTextRef.current = d.text;
         dirtyRef.current = false;
         setDirty(false);
@@ -649,13 +694,34 @@ export default function App() {
     [persist, refreshPreview],
   );
 
+  /** Mouse side buttons / title-bar menu / chords: browser-style doc
+   * history moves. The navigation itself must not re-record history. */
+  const goBackDoc = useCallback(() => {
+    const s = stateRef.current;
+    if (!s.currentFile) return;
+    const res = popBack(docHistoryRef.current, s.currentFile);
+    if (!res.target) return;
+    docHistoryRef.current = res.history;
+    void openFile(res.target, { history: false });
+  }, [openFile]);
+
+  const goForwardDoc = useCallback(() => {
+    const s = stateRef.current;
+    if (!s.currentFile) return;
+    const res = popForward(docHistoryRef.current, s.currentFile);
+    if (!res.target) return;
+    docHistoryRef.current = res.history;
+    void openFile(res.target, { history: false });
+  }, [openFile]);
+
   const chooseFolder = useCallback(async () => {
     const path = await api.pickFolder();
     if (path) {
-      if (dirtyRef.current) await saveDoc();
+      await flushPendingSave();
       setCurrentFile(null);
       setDoc(null);
       await api.setCurrentFile(null);
+      docHistoryRef.current = emptyHistory();
       await openFolder(path);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -714,7 +780,9 @@ export default function App() {
       if (next === stateRef.current.mode) return;
       const prev = stateRef.current.mode;
       if (next === "read") {
-        await saveDoc();
+        // The buffer gets reseeded from doc.text below, so pending edits
+        // must be durably on disk (and reflected in doc.text) first.
+        await flushPendingSave();
         // The reading view renders doc.html / chunked HTML that open_doc
         // built once at open time — saving only refreshes the text, so an
         // image pasted in the editor never showed up. Re-open the just-
@@ -748,7 +816,7 @@ export default function App() {
         refreshPreview(true, "split");
       }
     },
-    [saveDoc, refreshPreview],
+    [flushPendingSave, refreshPreview],
   );
 
   const toggleZen = useCallback(async () => {
@@ -786,7 +854,8 @@ export default function App() {
   const exportHtml = useCallback(async () => {
     const s = stateRef.current;
     if (!s.currentFile || !s.doc) return;
-    if (dirtyRef.current) await saveDoc();
+    // The export reads the file from disk, so pending edits must land first.
+    await flushPendingSave();
     const stem = s.currentFile.split(/[\\/]/).pop()?.replace(/\.(md|markdown)$/i, "") ?? "文档";
     const out = await api.pickExportPath(`${stem}.html`);
     if (!out) return;
@@ -796,7 +865,7 @@ export default function App() {
     } catch (err) {
       setError("导出失败: " + String(err));
     }
-  }, [saveDoc]);
+  }, [flushPendingSave]);
 
   const startServe = useCallback(async (lan: boolean, follow: boolean, edit: boolean) => {
     if (lan) {
@@ -931,6 +1000,12 @@ export default function App() {
         break;
       case "quick-open":
         openQuickOpen(false);
+        break;
+      case "doc-back":
+        goBackDoc();
+        break;
+      case "doc-forward":
+        goForwardDoc();
         break;
       case "find":
         openFind(false);
@@ -1801,6 +1876,12 @@ export default function App() {
         case "toggle-sidebar":
           setSidebarVisible((v) => !v);
           break;
+        case "doc-back":
+          fireOnce("doc-back", () => goBackDoc());
+          break;
+        case "doc-forward":
+          fireOnce("doc-forward", () => goForwardDoc());
+          break;
         case "zen-next":
           zenCtlRef.current?.jumpTo((zenPosRef.current?.idx ?? 0) + 1);
           break;
@@ -1817,7 +1898,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, openQuickOpen, openFind, chooseFolder, chooseFile, saveDoc, exportHtml, fullscreenOn, zenOn, quickOpen, findOpen, settingsOpen, sidebarVisible, draft]);
+  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, openQuickOpen, openFind, chooseFolder, chooseFile, saveDoc, exportHtml, fullscreenOn, zenOn, quickOpen, findOpen, settingsOpen, sidebarVisible, draft, goBackDoc, goForwardDoc]);
 
   // The reader gutters (left/right of the centered 860px body) belong to the
   // overflow-hidden wrapper, so the wheel hits a dead zone there — forward it
@@ -1838,6 +1919,31 @@ export default function App() {
     wrap.addEventListener("wheel", onWheel, { passive: false });
     return () => wrap.removeEventListener("wheel", onWheel);
   }, [mode, doc]);
+
+  // Mouse side buttons (back=3 / forward=4) walk the document history like a
+  // browser. Capture phase keeps CodeMirror and the readers out of the way;
+  // auxclick is neutralized so no engine turns the press into a default
+  // action. Open modals swallow the press instead of switching docs behind
+  // them.
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (quickOpen || settingsOpen || findOpen) return;
+      if (e.button === 3) goBackDoc();
+      else goForwardDoc();
+    };
+    const onAuxClick = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) e.preventDefault();
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("auxclick", onAuxClick, true);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("auxclick", onAuxClick, true);
+    };
+  }, [goBackDoc, goForwardDoc, quickOpen, settingsOpen, findOpen]);
 
   // Restore last session (folder/file/theme) on startup. A path handed over
   // by the launching process (double-clicked .md) takes priority over the
@@ -1980,7 +2086,9 @@ export default function App() {
       exitApprovedRef.current = true;
       appExitingRef.current = true;
       if (save) {
-        await saveDoc();
+        // Wait out an in-flight save (and any merged follow-up) so the
+        // dirty check below judges what actually landed on disk.
+        await flushPendingSave();
         if (dirtyRef.current) {
           exitApprovedRef.current = false;
           appExitingRef.current = false;
@@ -1995,7 +2103,7 @@ export default function App() {
         setError("退出失败: " + String(err));
       }
     },
-    [saveDoc],
+    [flushPendingSave],
   );
 
   // Best-effort guard for the in-app reload path (F5); real window closes go
