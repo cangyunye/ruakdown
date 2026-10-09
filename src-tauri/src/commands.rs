@@ -549,6 +549,13 @@ pub fn apply_theme(app: AppHandle, name: String) -> Result<theme::Theme, String>
     Ok(t)
 }
 
+/// Picker metadata for every builtin theme, in picker order; the frontend
+/// builds its theme menu from this instead of hardcoding labels.
+#[tauri::command]
+pub fn list_themes() -> Vec<theme::ThemeMeta> {
+    theme::list()
+}
+
 /// Absolute path of the bundled mermaid.min.js. The webview loads it through
 /// the asset protocol (single copy — the npm mermaid dependency is gone),
 /// while export/serve read the same file directly.

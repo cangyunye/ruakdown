@@ -1,0 +1,32 @@
+{
+  "name": "魅影紫罗兰",
+  "dark": true,
+  "vars": {
+    "--bg": "#181226",
+    "--panel": "#221a38",
+    "--border": "#37295c",
+    "--text": "#ddd6ec",
+    "--muted": "#9d90c4",
+    "--heading": "#c4a7f5",
+    "--link": "#a684ff",
+    "--accent": "#a684ff",
+    "--accent-soft": "rgba(166, 132, 255, 0.16)",
+    "--code-bg": "#251c44",
+    "--code-text": "#d8b4ff",
+    "--pre-bg": "#120d20",
+    "--pre-border": "#332556",
+    "--quote-border": "#8b6fd8",
+    "--quote-text": "#9d90c4",
+    "--table-border": "#37295c",
+    "--mermaid-bg": "#1c1530",
+    "--reader-overlay-rgb": "24, 18, 38",
+    "--chip-0": "#ff6b9d",
+    "--chip-1": "#ff9e64",
+    "--chip-2": "#ffd166",
+    "--chip-3": "#7ce8a4",
+    "--chip-4": "#6be5e0",
+    "--chip-5": "#82aaff",
+    "--chip-6": "#c792ea",
+    "--chip-7": "#e69fff"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "赛博朋克",
+  "dark": true,
+  "vars": {
+    "--bg": "#0d0b1e",
+    "--panel": "#151230",
+    "--border": "#2b2456",
+    "--text": "#d9d4ef",
+    "--muted": "#8d86b8",
+    "--heading": "#00e5ff",
+    "--link": "#ff2e88",
+    "--accent": "#00e5ff",
+    "--accent-soft": "rgba(0, 229, 255, 0.14)",
+    "--code-bg": "#1b1740",
+    "--code-text": "#5af0a8",
+    "--pre-bg": "#090718",
+    "--pre-border": "#2b2456",
+    "--quote-border": "#ff2e88",
+    "--quote-text": "#8d86b8",
+    "--table-border": "#332b63",
+    "--mermaid-bg": "#110e28",
+    "--reader-overlay-rgb": "13, 11, 30",
+    "--chip-0": "#ff2e63",
+    "--chip-1": "#ff9e1f",
+    "--chip-2": "#f9e900",
+    "--chip-3": "#00ff9f",
+    "--chip-4": "#00e5ff",
+    "--chip-5": "#3d9bff",
+    "--chip-6": "#b967ff",
+    "--chip-7": "#ff71ce"
+  }
+}

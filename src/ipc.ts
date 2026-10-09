@@ -121,6 +121,13 @@ export interface Theme {
   vars: Record<string, string>;
 }
 
+/** Picker metadata from list_themes: label comes from the JSON `name` field. */
+export interface ThemeMeta {
+  id: string;
+  name: string;
+  dark: boolean;
+}
+
 export interface SaveResult {
   bytes: number;
   backup: string | null;
@@ -198,6 +205,7 @@ export const api = {
   getConfig: () => invoke<AppConfig>("get_config"),
   saveConfig: (config: AppConfig) => invoke<void>("save_config", { config }),
   applyTheme: (name: string) => invoke<Theme>("apply_theme", { name }),
+  listThemes: () => invoke<ThemeMeta[]>("list_themes"),
   /** Absolute path of the bundled mermaid.min.js (loaded via asset protocol). */
   mermaidAssetPath: () => invoke<string>("mermaid_asset_path"),
   pickExportPath: (defaultName: string) =>

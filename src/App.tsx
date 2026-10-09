@@ -111,20 +111,6 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-const THEME_LABELS: Record<string, string> = {
-  light: "浅色",
-  dark: "暗色",
-  graphite: "石墨",
-  "sunset-coast": "夕阳海岸",
-  verdant: "无边绿意",
-  sky: "蓝天白云",
-  newsprint: "陈旧报纸",
-  "plum-wine": "青梅煮酒",
-  "mountain-stream": "高山流水",
-  wudang: "论道武当",
-};
-
-
 /** Project home and release feed, opened from the settings modal and the
  * empty state. Releases carry the prebuilt installers (update channel). */
 const REPO_URL = "https://github.com/cangyunye/ruakdown";
@@ -213,6 +199,8 @@ export default function App() {
   const [externalChange, setExternalChange] = useState(false);
   const [themeName, setThemeName] = useState("light");
   const [themeDark, setThemeDark] = useState(false);
+  /** id → display name, from list_themes (JSON `name` fields); empty until loaded. */
+  const [themeLabels, setThemeLabels] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<SidebarTab>("files");
   const [activeHeading, setActiveHeading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1957,6 +1945,12 @@ export default function App() {
         setThemeName(theme);
         const t = await applyTheme(theme);
         setThemeDark(t?.dark ?? false);
+        api
+          .listThemes()
+          .then((themes) =>
+            setThemeLabels(Object.fromEntries(themes.map((m) => [m.id, m.name]))),
+          )
+          .catch(() => {});
         if (cfg.servePort && cfg.servePort > 0 && cfg.servePort < 65536) {
           setServePort(cfg.servePort);
         }
@@ -2199,7 +2193,7 @@ export default function App() {
           zenOn={zenOn}
           fullscreenOn={fullscreenOn}
           themeName={themeName}
-          themeLabels={THEME_LABELS}
+          themeLabels={themeLabels}
           shareAvailable={shareAvailable}
           version={appVersion || null}
           onMode={(next) => void switchMode(next)}
@@ -2724,7 +2718,7 @@ export default function App() {
               文中可用 ==高亮== 语法手动标记重点。
             </p>
             <p className="setting-hint">
-              端口修改后,下次启动预览服务生效。当前主题:{THEME_LABELS[themeName]}
+              端口修改后,下次启动预览服务生效。当前主题:{themeLabels[themeName] ?? themeName}
             </p>
             <div className="setting-divider">粘贴资源 (assets)</div>
             <label className="setting-row">

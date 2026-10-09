@@ -334,7 +334,8 @@
   border: 1px solid var(--border);
   border-bottom-width: 2px;
   border-radius: 5px;
-  background: var(--hover);
+  /* --hover exists only in the app shell; export/share fall back to --panel. */
+  background: var(--hover, var(--panel));
   color: var(--text);
   font-family: inherit;
   font-size: 0.85em;
@@ -352,3 +353,4 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
