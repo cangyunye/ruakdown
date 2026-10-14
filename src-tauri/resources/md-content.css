@@ -255,10 +255,16 @@
   border-radius: 4px;
 }
 
+/* GitHub-style wide tables: the table keeps its natural column widths
+   (nothing gets squeezed) and scrolls horizontally when it overflows the
+   reading column instead of compressing cell content. */
 .md-body table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow: auto;
   border-collapse: collapse;
   margin: 1em 0;
-  width: 100%;
 }
 
 .md-body th,

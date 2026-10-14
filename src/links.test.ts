@@ -47,6 +47,30 @@ describe("openMarkdownLink routing (classifyLink)", () => {
     }
   });
 
+  it("prefers the app's jumpAnchor routing over the DOM lookup", async () => {
+    const jump = vi.fn(() => true);
+    const getElementById = vi.fn();
+    vi.stubGlobal("document", { getElementById });
+    try {
+      await openMarkdownLink("#title1", { ...ctx(), jumpAnchor: jump });
+      expect(jump).toHaveBeenCalledWith("title1");
+      expect(getElementById).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("arms the pending retry when no anchor target exists yet", async () => {
+    const pending = vi.fn();
+    vi.stubGlobal("document", { getElementById: vi.fn(() => null) });
+    try {
+      await openMarkdownLink("#ghost", { ...ctx(), anchorPending: pending });
+      expect(pending).toHaveBeenCalledWith("ghost");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("routes everything else as local (resolve against the open file)", async () => {
     mockedResolve.mockResolvedValue({
       path: "/proj/docs/b.md",
@@ -168,6 +192,37 @@ describe("openMarkdownLink", () => {
       await openMarkdownLink("b.md#sec", { currentFile: "/proj/a.md", root: "/proj", openFile, notify: vi.fn() });
       expect(openFile).toHaveBeenCalledWith("/proj/b.md");
       expect(scroll).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("arms the pending anchor before opening a cross-file fragment link", async () => {
+    const order: string[] = [];
+    vi.stubGlobal("document", { getElementById: vi.fn(() => null) });
+    vi.stubGlobal("requestAnimationFrame", (cb: () => void) => cb());
+    const openFile = vi.fn(async () => {
+      order.push("openFile");
+    });
+    mockedResolve.mockResolvedValue({
+      path: "/proj/b.md",
+      exists: true,
+      inRoot: true,
+      isMarkdown: true,
+    });
+    try {
+      await openMarkdownLink("b.md#sec", {
+        currentFile: "/proj/a.md",
+        root: "/proj",
+        openFile,
+        notify: vi.fn(),
+        anchorPending: () => order.push("pending"),
+        jumpAnchor: () => {
+          order.push("jump");
+          return false;
+        },
+      });
+      expect(order).toEqual(["pending", "openFile", "jump", "pending"]);
     } finally {
       vi.unstubAllGlobals();
     }

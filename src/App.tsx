@@ -304,6 +304,9 @@ export default function App() {
   const syncTargetBiRef = useRef(0);
   const previewTimer = useRef<number | null>(null);
   const previewRevRef = useRef(0);
+  // File the current previewMeta was built from: anchor jumps must not use a
+  // meta that predates a doc switch (same-named headings would mislead).
+  const metaFileRef = useRef<string | null>(null);
   const editorScrollRaf = useRef<number | null>(null);
   const stateRef = useRef({
     root,
@@ -458,12 +461,13 @@ export default function App() {
     }
     const run = async () => {
       const rev = ++previewRevRef.current;
+      const file = stateRef.current.currentFile ?? "";
       try {
-        const meta = await api.previewUpdate(
-          editTextRef.current,
-          stateRef.current.currentFile ?? "",
-        );
-        if (rev === previewRevRef.current) setPreviewMeta(meta);
+        const meta = await api.previewUpdate(editTextRef.current, file);
+        if (rev === previewRevRef.current) {
+          metaFileRef.current = file;
+          setPreviewMeta(meta);
+        }
       } catch (err) {
         if (rev === previewRevRef.current) {
           setError("预览渲染失败: " + String(err));
@@ -923,6 +927,55 @@ export default function App() {
       .catch(() => setShareAvailable(false));
   }, []);
 
+  // Anchor navigation (`[x](#heading)` links). Each view keeps its target in
+  // a different place: split view's preview is virtualized (jump via the
+  // block table), large-doc read view mounts chunks on demand
+  // (ChunkedReader.jumpTo), plain read view has the whole DOM mounted (falls
+  // through to the plain id lookup in links.ts).
+  const pendingAnchorRef = useRef<{ id: string; at: number } | null>(null);
+  const jumpAnchor = useCallback((id: string): boolean => {
+    const s = stateRef.current;
+    if (s.mode === "split") {
+      const m = previewMetaRef.current;
+      const pv = previewRef.current;
+      if (!m || !pv || metaFileRef.current !== (s.currentFile ?? "")) {
+        return false;
+      }
+      const block = m.blocks.find((b) => b.headingId === id);
+      if (!block) return false;
+      pv.scrollToBlock(block.bi);
+      pendingAnchorRef.current = null;
+      return true;
+    }
+    if (s.doc?.chunked) {
+      // Handled either way: jumpTo mounts the target chunk and scrolls, and
+      // an id missing from the outline can never succeed by retrying.
+      chunkedReaderRef.current?.jumpTo(id);
+      pendingAnchorRef.current = null;
+      return true;
+    }
+    return false;
+  }, []);
+
+  // An anchor click that found no target yet: a cross-file jump whose new
+  // document/preview is still building (or a stale-meta window). Retried
+  // whenever the doc or preview updates; expires so dead anchors don't haunt
+  // later edits.
+  useEffect(() => {
+    const p = pendingAnchorRef.current;
+    if (!p) return;
+    if (Date.now() - p.at > 5000) {
+      pendingAnchorRef.current = null;
+      return;
+    }
+    if (jumpAnchor(p.id)) return;
+    const el = document.getElementById(p.id);
+    if (el) {
+      pendingAnchorRef.current = null;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [doc, previewMeta, jumpAnchor]);
+
   // Link navigation inside markdown (preview click / Ctrl+click in source):
   // web → browser, md → open in app (folder tree untouched), other local
   // files → system default app.
@@ -934,9 +987,13 @@ export default function App() {
         root: s.root,
         openFile,
         notify: setInfo,
+        jumpAnchor,
+        anchorPending: (id) => {
+          pendingAnchorRef.current = { id, at: Date.now() };
+        },
       });
     },
-    [openFile],
+    [openFile, jumpAnchor],
   );
 
   // In-document find/replace panel. `replace` expands the replace row; in

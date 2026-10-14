@@ -47,6 +47,7 @@ pub(crate) fn md_options() -> Options {
 /// `--syn-*` theme variables).
 pub fn render_markdown(source: &str) -> RenderedDoc {
     let mut outline: Vec<OutlineItem> = Vec::new();
+    let mut slugger = HeadingSlugger::default();
     let mut current: Option<(u8, String)> = None;
 
     // Single parse pass: collect outline items and the event stream together.
@@ -59,7 +60,7 @@ pub fn render_markdown(source: &str) -> RenderedDoc {
             Event::End(TagEnd::Heading(_)) => {
                 if let Some((level, text)) = current.take() {
                     let text = text.trim().to_string();
-                    let id = make_heading_id(&text, outline.len() + 1);
+                    let id = slugger.slug(&text);
                     outline.push(OutlineItem { level, text, id });
                 }
             }
@@ -366,8 +367,8 @@ pub(crate) fn escape_html(text: &str) -> String {
 }
 
 /// GitHub-ish slug: ASCII alnum lowercased, other alphanumerics (CJK etc.) kept,
-/// everything else collapsed to '-'. The running index keeps ids unique.
-pub(crate) fn make_heading_id(text: &str, index: usize) -> String {
+/// everything else collapsed to '-'.
+pub(crate) fn slugify(text: &str) -> String {
     let mut slug = String::new();
     let mut last_dash = true;
     for ch in text.chars() {
@@ -382,11 +383,33 @@ pub(crate) fn make_heading_id(text: &str, index: usize) -> String {
             last_dash = true;
         }
     }
-    let slug = slug.trim_matches('-');
-    if slug.is_empty() {
-        format!("heading-{index}")
-    } else {
-        format!("{slug}-{index}")
+    slug.trim_matches('-').to_string()
+}
+
+/// GitHub-style id allocator: the first `# Title` gets the bare slug
+/// (`title`), duplicates get `-1`, `-2`, … — so in-document links like
+/// `[x](#title)` resolve against the natural spelling of the heading.
+/// Both the full render and the chunked assembler must feed headings in
+/// document order to allocate identical ids.
+#[derive(Default)]
+pub(crate) struct HeadingSlugger {
+    seen: HashMap<String, u32>,
+}
+
+impl HeadingSlugger {
+    pub fn slug(&mut self, text: &str) -> String {
+        let mut base = slugify(text);
+        if base.is_empty() {
+            base.push_str("heading");
+        }
+        let n = self.seen.entry(base.clone()).or_insert(0);
+        let id = if *n == 0 {
+            base.clone()
+        } else {
+            format!("{base}-{n}")
+        };
+        *n += 1;
+        id
     }
 }
 
@@ -587,6 +610,41 @@ mod tests {
         assert_eq!(doc.outline[0].text, "标题 A");
         assert_ne!(doc.outline[0].id, doc.outline[2].id);
         assert!(doc.html.contains("<h1 id="));
+    }
+
+    /// GitHub scheme: `# title1` gets the bare slug so `[x](#title1)` links
+    /// work; only duplicates get numeric suffixes.
+    #[test]
+    fn heading_ids_follow_github_slug_scheme() {
+        let doc = render_markdown("# title1\n\ntext\n");
+        assert_eq!(doc.outline[0].id, "title1");
+        assert!(doc.html.contains("<h1 id=\"title1\">"), "{}", doc.html);
+
+        let doc = render_markdown("# 标题\n\n# 标题\n\n# 标题");
+        assert_eq!(doc.outline[0].id, "标题");
+        assert_eq!(doc.outline[1].id, "标题-1");
+        assert_eq!(doc.outline[2].id, "标题-2");
+
+        // A heading whose text slugs empty still gets a stable, unique id.
+        let doc = render_markdown("# 🎉\n\n## 🎉");
+        assert_eq!(doc.outline[0].id, "heading");
+        assert_eq!(doc.outline[1].id, "heading-1");
+    }
+
+    /// Chunked rendering must allocate identical ids to the full render so
+    /// `[x](#slug)` jumps work in every view.
+    #[test]
+    fn chunked_and_full_ids_agree() {
+        let source = "# title1\n\ntext\n\n## title1\n\ntext\n\n".repeat(40);
+        let doc = render_markdown(&source);
+        let chunked = crate::core::large_doc::build_reader(&source, None);
+        assert_eq!(doc.outline.len(), chunked.outline.len());
+        for (plain, chunk) in doc.outline.iter().zip(chunked.outline.iter()) {
+            assert_eq!(plain.id, chunk.id);
+        }
+        let joined: String = chunked.chunks.iter().map(|c| c.html.as_str()).collect();
+        assert!(joined.contains("id=\"title1\""), "{joined}");
+        assert!(joined.contains("id=\"title1-1\""), "{joined}");
     }
 
     #[test]

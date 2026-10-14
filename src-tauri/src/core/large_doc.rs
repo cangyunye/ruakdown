@@ -1,5 +1,5 @@
 use crate::core::frontmatter;
-use crate::core::markdown::{make_heading_id, md_options, post_process_events};
+use crate::core::markdown::{HeadingSlugger, md_options, post_process_events};
 use pulldown_cmark::{html, CodeBlockKind, Event, Parser, Tag, TagEnd};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -104,7 +104,7 @@ struct RawBlock {
     tags: u32,
     mermaid: bool,
     kind: BlockKind,
-    heading: Option<(u8, String, String, u32)>, // level, text, id, global index
+    heading: Option<(u8, String, u32)>, // level, text, global index
     /// Estimated display heights of the block's local images (empty when the
     /// resolver is absent or an image is unresolvable). Cached with the block
     /// so reused blocks never re-probe the filesystem.
@@ -262,7 +262,7 @@ fn make_block(
     if let Some(mut hit) = prev.and_then(|m| m.lookup(key)) {
         // Reused renders skip finish_block, so the heading counter must be
         // advanced manually to keep subsequent keys (and heading ids) aligned.
-        if let Some((_, _, _, idx)) = hit.heading {
+        if let Some((_, _, idx)) = hit.heading {
             *heading_counter = idx as usize + 1;
         }
         hit.src_start = start;
@@ -330,7 +330,7 @@ fn finish_block(events: Vec<Event<'_>>, heading_counter: &mut usize) -> RawBlock
     // A metadata block's events render to nothing via push_html; its raw text
     // becomes the frontmatter property card so chunk concatenation stays
     // byte-identical with the full-document render.
-    let mut html = if matches!(events.first(), Some(Event::Start(Tag::MetadataBlock(_)))) {
+    let html = if matches!(events.first(), Some(Event::Start(Tag::MetadataBlock(_)))) {
         frontmatter::metadata_text(&events)
             .map(|raw| frontmatter::card_html(&raw))
             .unwrap_or_default()
@@ -341,21 +341,15 @@ fn finish_block(events: Vec<Event<'_>>, heading_counter: &mut usize) -> RawBlock
     };
     let tags = count_tags(&html);
 
+    // Heading ids are NOT allocated here: id dedup needs every earlier
+    // heading, and blocks render (and cache) independently. The assembler
+    // stamps the final ids in document order (see `assemble`), so a reused
+    // block's html only has to stay id-free.
     let heading = heading.map(|(level, text)| {
-        let id = make_heading_id(text.trim(), *heading_counter + 1);
         let idx = *heading_counter as u32;
         *heading_counter += 1;
-        (level, text.trim().to_string(), id, idx)
+        (level, text.trim().to_string(), idx)
     });
-
-    if kind == BlockKind::Heading {
-        if let Some((level, _, id, _)) = &heading {
-            let needle = format!("<h{level}>");
-            if let Some(pos) = html.find(&needle) {
-                html.replace_range(pos..pos + needle.len(), &format!("<h{level} id=\"{id}\">"));
-            }
-        }
-    }
 
     RawBlock {
         html,
@@ -589,6 +583,7 @@ fn assemble(
     let mut outline_assigned: usize = 0; // outline entries already bound to a flushed chunk
     let mut blocks_assigned: usize = 0; // block entries already bound to a flushed chunk
     let mut acc = ChunkAcc::new();
+    let mut slugger = HeadingSlugger::default();
 
     for (bi, block) in raw_blocks.into_iter().enumerate() {
         if acc.is_full() {
@@ -602,7 +597,13 @@ fn assemble(
         }
         let bi = bi as u32;
         let (start_line, end_line) = lines[bi as usize];
-        if let Some((level, text, id, idx)) = &block.heading {
+        // Final heading id: allocated in document order so ids match the
+        // full-document render byte-for-byte (and `[x](#slug)` links work).
+        let heading = block
+            .heading
+            .as_ref()
+            .map(|(level, text, idx)| (*level, text.clone(), *idx, slugger.slug(text)));
+        if let Some((level, text, idx, id)) = &heading {
             outline.push(ChunkOutlineItem {
                 level: *level,
                 text: text.clone(),
@@ -620,7 +621,7 @@ fn assemble(
             chunk: 0,
             start_line,
             end_line,
-            heading_id: block.heading.as_ref().map(|(_, _, id, _)| id.clone()),
+            heading_id: heading.as_ref().map(|(_, _, _, id)| id.clone()),
         });
         let RawBlock {
             mut html,
@@ -631,6 +632,12 @@ fn assemble(
             img_heights,
             ..
         } = block;
+        if let Some((level, _, _, id)) = &heading {
+            let needle = format!("<h{level}>");
+            if let Some(pos) = html.find(&needle) {
+                html.replace_range(pos..pos + needle.len(), &format!("<h{level} id=\"{id}\">"));
+            }
+        }
         let est = est_height(kind, html.len(), mermaid, &img_heights);
         inject_data_bi(&mut html, bi);
         acc.push_block(html, tags, est, mermaid);
@@ -830,9 +837,24 @@ mod tests {
             strip_data_bi(&concat_chunks(&third)),
             strip_data_bi(&concat_chunks(&build(&modified)))
         );
-        // ids stay unique across the reused/fresh boundary
+        // ids stay unique across the reused/fresh boundary (GitHub scheme:
+        // first occurrence bare, duplicates -1, -2, …)
         let joined = concat_chunks(&third);
-        assert_eq!(joined.matches("章节标题-").count(), 50);
+        let ids: Vec<&str> = joined
+            .match_indices("<h1 ")
+            .filter_map(|(pos, _)| {
+                let tag_end = joined[pos..].find('>')? + pos;
+                let seg = &joined[pos..tag_end];
+                let at = seg.find("id=\"")? + "id=\"".len();
+                let rest = &seg[at..];
+                Some(&rest[..rest.find('"').expect("closing quote")])
+            })
+            .collect();
+        assert_eq!(ids.len(), 50);
+        let unique: std::collections::HashSet<&&str> = ids.iter().collect();
+        assert_eq!(unique.len(), 50, "ids must be unique: {ids:?}");
+        assert_eq!(ids[0], "章节标题");
+        assert_eq!(ids[49], "章节标题-49");
     }
 
     #[test]

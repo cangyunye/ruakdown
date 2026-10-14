@@ -38,6 +38,14 @@ export interface OpenLinkCtx {
   openFile: (path: string) => Promise<void>;
   /** Show a transient banner message. */
   notify: (msg: string) => void;
+  /** Anchor jump routing: the split view maps the id onto its virtualized
+   * block table (unmounted chunks have no DOM to scroll to). True = handled;
+   * false falls through to the plain `getElementById` lookup. */
+  jumpAnchor?: (id: string) => boolean;
+  /** An anchor whose target does not exist yet — typically a cross-file jump
+   * whose preview is still building. The app retries it as the new preview
+   * (or doc) lands. */
+  anchorPending?: (id: string) => void;
 }
 
 /** Act on a clicked markdown link: browser for web URLs, in-app open for
@@ -54,7 +62,7 @@ export async function openMarkdownLink(
     return;
   }
   if (kind === "anchor") {
-    scrollToAnchor(decodeSafe(href.trim().slice(1)));
+    scrollToAnchor(decodeSafe(href.trim().slice(1)), ctx);
     return;
   }
   // Local target: strip file:// and any trailing #fragment.
@@ -64,7 +72,7 @@ export async function openMarkdownLink(
   const fragment = hashIdx >= 0 ? decodeSafe(target.slice(hashIdx + 1)) : null;
   if (hashIdx >= 0) target = target.slice(0, hashIdx);
   if (!target) {
-    if (fragment) scrollToAnchor(fragment);
+    if (fragment) scrollToAnchor(fragment, ctx);
     return;
   }
   if (!ctx.currentFile) {
@@ -78,11 +86,14 @@ export async function openMarkdownLink(
       return;
     }
     if (r.isMarkdown) {
+      // Arm the pending anchor before the doc switches so the retry effect
+      // (which fires when the new preview lands) owns the jump.
+      if (fragment) ctx.anchorPending?.(fragment);
       await ctx.openFile(r.path);
       if (fragment) {
         // Wait for the render commit, then jump (same trick as search hits).
         requestAnimationFrame(() =>
-          requestAnimationFrame(() => scrollToAnchor(fragment)),
+          requestAnimationFrame(() => scrollToAnchor(fragment, ctx)),
         );
       }
     } else {
@@ -93,8 +104,17 @@ export async function openMarkdownLink(
   }
 }
 
-function scrollToAnchor(id: string): void {
-  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+/** Jump to a heading id: the app's block-table routing first (split view),
+ * then the plain DOM lookup; a miss arms the pending retry. */
+function scrollToAnchor(id: string, ctx: OpenLinkCtx): void {
+  if (!id) return;
+  if (ctx.jumpAnchor?.(id)) return;
+  const el = document.getElementById(id);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  ctx.anchorPending?.(id);
 }
 
 function decodeSafe(s: string): string {
