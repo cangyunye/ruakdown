@@ -32,6 +32,13 @@ describe("buildEditorMenuEntries", () => {
     expect(entries[0].type).toBe("item");
   });
 
+  it("frontmatter entry sits right above 1 级标题块 in both variants", () => {
+    for (const list of [ids(buildEditorMenuEntries(true)), ids(buildEditorMenuEntries(false))]) {
+      expect(list.indexOf("frontmatter")).toBeGreaterThan(-1);
+      expect(list.indexOf("frontmatter") + 1).toBe(list.indexOf("h1"));
+    }
+  });
+
   it("callout entries carry their color dots", () => {
     const note = buildEditorMenuEntries(false).find(
       (e) => e.type === "item" && e.id === "callout-NOTE",

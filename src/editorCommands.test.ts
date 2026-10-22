@@ -3,8 +3,10 @@ import { EditorView } from "@codemirror/view";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   clearCallout,
+  FRONTMATTER_TEMPLATE,
   insertCallout,
   insertCodeBlock,
+  insertFrontmatter,
   insertHr,
   insertIframe,
   insertImageLink,
@@ -163,6 +165,41 @@ describe("block insertion", () => {
     const doc = "内容一\n内容二";
     const r = run(doc, (v) => insertCallout(v, "TIP"), 0, doc.length);
     expect(r.text).toBe("> [!TIP]\n> 内容一\n> 内容二");
+  });
+});
+
+describe("insertFrontmatter", () => {
+  it("lands at the top of an empty document with the name example selected", () => {
+    const r = run("", insertFrontmatter, 0);
+    expect(r.text).toBe(FRONTMATTER_TEMPLATE + "\n");
+    expect(r.selected).toBe("示例名称");
+  });
+
+  it("goes to offset 0 with a blank separator, wherever the cursor is", () => {
+    const r = run("# 标题\n\n正文", insertFrontmatter, 8);
+    expect(r.text).toBe(FRONTMATTER_TEMPLATE + "\n\n# 标题\n\n正文");
+  });
+
+  it("keeps a single blank line when the document opens with one", () => {
+    const r = run("\n正文", insertFrontmatter, 0);
+    expect(r.text).toBe(FRONTMATTER_TEMPLATE + "\n\n正文");
+  });
+
+  it("refuses when frontmatter already exists", () => {
+    const doc = "---\nname: 已有\n---\n\n正文";
+    const r = run(doc, insertFrontmatter, 10);
+    expect(r.text).toBe(doc);
+  });
+
+  it("a lone leading --- is a thematic break, not frontmatter", () => {
+    const r = run("---\n", insertFrontmatter, 0);
+    expect(r.text).toBe(FRONTMATTER_TEMPLATE + "\n\n---\n");
+  });
+
+  it("... closes frontmatter too", () => {
+    const doc = "---\nname: 已有\n...\n\n正文";
+    const r = run(doc, insertFrontmatter, 0);
+    expect(r.text).toBe(doc);
   });
 });
 

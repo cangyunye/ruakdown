@@ -33,6 +33,7 @@ import {
   insertAudio,
   insertCallout,
   insertCodeBlock,
+  insertFrontmatter,
   insertHr,
   insertIframe,
   insertImageLink,
@@ -1472,6 +1473,11 @@ export default function App() {
         break;
       case "callout-clear":
         run(clearCallout);
+        break;
+      case "frontmatter":
+        run((view) => {
+          if (!insertFrontmatter(view)) setInfo("文档顶部已有 frontmatter 元信息块");
+        });
         break;
       case "codeblock":
         run(insertCodeBlock);

@@ -33,6 +33,7 @@ export function buildEditorMenuEntries(includeClipboard: boolean): CtxEntry[] {
     );
   }
   items.push(
+    { type: "item", id: "frontmatter", label: "Frontmatter 元信息块" },
     ...([1, 2, 3, 4, 5, 6] as const).map((level) => ({
       type: "item" as const,
       id: `h${level}`,

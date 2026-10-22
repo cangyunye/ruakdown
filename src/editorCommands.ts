@@ -194,6 +194,57 @@ export function insertMindmap(view: EditorView): boolean {
   return insertBlock(view, MINDMAP_TEMPLATE);
 }
 
+/* ── frontmatter (document metadata block) ────────────────────────── */
+
+/** Quick-insert template: the example values double as fill-in hints the
+ * user replaces field by field (`name` arrives pre-selected). */
+export const FRONTMATTER_TEMPLATE =
+  "---\n" +
+  "name: 示例名称\n" +
+  "description: 一句话描述这份文档的内容与用途。\n" +
+  "keywords: [关键词一, 关键词二, 关键词三]\n" +
+  "tags: []\n" +
+  "references: []\n" +
+  "---";
+
+/** The shape the renderer parses (pulldown-cmark's YAML-style metadata
+ * block): a `---` first line closed by a later `---` / `...` line. A lone
+ * leading `---` is a thematic break and does not count as frontmatter. */
+export function docHasFrontmatter(state: EditorState): boolean {
+  if (state.doc.lines < 2 || !/^---\s*$/.test(state.doc.line(1).text)) return false;
+  for (let n = 2; n <= state.doc.lines; n++) {
+    if (/^(?:---|\.\.\.)\s*$/.test(state.doc.line(n).text)) return true;
+  }
+  return false;
+}
+
+/** Metadata blocks only parse at the very top of the document, so the
+ * template always lands at offset 0 — planInsertBlock's cursor-relative
+ * blank-line logic does not apply here. Returns null when the document
+ * already carries frontmatter. */
+export function planInsertFrontmatter(state: EditorState): EditPlan | null {
+  if (docHasFrontmatter(state)) return null;
+  const doc = state.doc;
+  // Blank line before existing content; a single newline into an empty or
+  // blank-opening document so no double blank line piles up at the top.
+  const gap = doc.length === 0 || doc.sliceString(0, 1) === "\n" ? "\n" : "\n\n";
+  const nameFrom = "---\nname: ".length;
+  return {
+    changes: { from: 0, insert: FRONTMATTER_TEMPLATE + gap },
+    selection: { anchor: nameFrom, head: nameFrom + "示例名称".length },
+  };
+}
+
+/** Insert the frontmatter template at the document top; false when one
+ * already exists (the caller explains instead). Scrolls the inserted block
+ * into view, since the selection jumps away from the cursor position. */
+export function insertFrontmatter(view: EditorView): boolean {
+  const plan = planInsertFrontmatter(view.state);
+  if (!plan) return false;
+  view.dispatch({ ...plan, scrollIntoView: true, userEvent: "input.insert" });
+  return true;
+}
+
 /* ── callouts (GitHub alerts) ─────────────────────────────────────── */
 
 /** Insert a GitHub-style alert block. A non-empty selection is quoted line
