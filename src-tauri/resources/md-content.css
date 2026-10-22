@@ -300,10 +300,28 @@
   margin: 2em 0;
 }
 
+/* The app shell imports Tailwind, whose preflight resets `ol, ul, menu` to
+   `list-style: none` (plus margin/padding 0) — restated here or app surfaces
+   (reader, split preview) render markerless lists. Export/share never load
+   preflight; these declarations are redundant no-ops there. */
 .md-body ul,
 .md-body ol {
   padding-left: 2em;
   margin: 0.8em 0;
+}
+
+.md-body ul {
+  list-style: disc;
+}
+
+.md-body ol {
+  /* decimal keeps `start="N"` lists numbering from their written offset */
+  list-style: decimal;
+}
+
+/* Task items carry their checkbox as the marker, not a bullet beside it. */
+.md-body li:has(> input[type="checkbox"]) {
+  list-style: none;
 }
 
 .md-body li {

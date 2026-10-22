@@ -26,25 +26,52 @@ mod tests {
         assert!(MD_CONTENT_CSS.contains(".tok-keyword"));
     }
 
+    /// Body of the first rule block for `selector`, for pinning declarations.
+    fn css_rule<'a>(css: &'a str, selector: &str) -> &'a str {
+        let pos = css
+            .find(selector)
+            .unwrap_or_else(|| panic!("{selector} missing from {css}"));
+        let open = css[pos..].find('{').unwrap() + pos;
+        let close = css[open..].find('}').unwrap() + open;
+        &css[open + 1..close]
+    }
+
     /// List markers are content: ordinal numbers bold in the accent color,
     /// bullets tinted, both hanging in the `ol`/`ul` padding so stacked items
     /// form a left-aligned marker column. Losing these rules would silently
     /// revert digits to body-style plain text on all three surfaces.
     #[test]
     fn list_markers_stay_styled_bold_accent() {
-        let rule = |selector: &str| {
-            let pos = MD_CONTENT_CSS
-                .find(selector)
-                .unwrap_or_else(|| panic!("{selector} missing from md-content.css"));
-            let open = MD_CONTENT_CSS[pos..].find('{').unwrap() + pos;
-            let close = MD_CONTENT_CSS[open..].find('}').unwrap() + open;
-            &MD_CONTENT_CSS[open + 1..close]
-        };
-        let ol = rule(".md-body ol > li::marker");
+        let ol = css_rule(MD_CONTENT_CSS, ".md-body ol > li::marker");
         assert!(ol.contains("font-weight: 700"), "{ol}");
         assert!(ol.contains("var(--accent)"), "{ol}");
-        let ul = rule(".md-body ul > li::marker");
+        let ul = css_rule(MD_CONTENT_CSS, ".md-body ul > li::marker");
         assert!(ul.contains("var(--accent)"), "{ul}");
+    }
+
+    /// The app shell imports Tailwind, whose preflight resets `ol, ul, menu`
+    /// to `list-style: none` — without an explicit restatement every app
+    /// surface (reader, split preview) renders markerless lists while
+    /// export/share (no preflight) keep theirs. Task items must keep the
+    /// checkbox as their only marker.
+    #[test]
+    fn list_styles_survive_tailwind_preflight() {
+        // `contains` (not css_rule): ".md-body ol {" is a substring of the
+        // combined `.md-body ul, .md-body ol` padding rule, which would make
+        // the lookup grab the wrong block.
+        assert!(
+            MD_CONTENT_CSS.contains("list-style: disc"),
+            "ul must restate its marker against preflight"
+        );
+        assert!(
+            MD_CONTENT_CSS.contains("list-style: decimal"),
+            "ol must restate its marker against preflight (start= offsets)"
+        );
+        assert!(
+            css_rule(MD_CONTENT_CSS, ".md-body li:has(> input[type=\"checkbox\"]) {")
+                .contains("list-style: none"),
+            "task items keep the checkbox as their only marker"
+        );
     }
 
     // ---- theme slot contract (THEMES.md 「样式槽位的拓展」) ----

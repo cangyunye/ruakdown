@@ -710,6 +710,20 @@ mod tests {
         assert_eq!(doc.html.matches("<li>").count(), 3, "{}", doc.html);
     }
 
+    /// Task items render `<li><input …>` with the input as a direct child —
+    /// md-content.css relies on that shape (`li:has(> input[type=checkbox])`
+    /// suppresses the bullet so the box stays the only marker).
+    #[test]
+    fn task_list_checkbox_is_direct_li_child() {
+        let doc = render_markdown("- [ ] 待办\n- [x] 完成\n");
+        assert!(
+            doc.html.contains("<li><input disabled=\"\" type=\"checkbox\""),
+            "{}",
+            doc.html
+        );
+        assert!(doc.html.contains("checked=\"\""), "{}", doc.html);
+    }
+
     #[test]
     fn tex_math_becomes_mathml() {
         let doc = render_markdown("行内 $a^2$ 与块级:\n\n$$\n\\frac{1}{2}\n$$\n");
