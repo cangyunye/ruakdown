@@ -350,6 +350,58 @@ export function slashTrigger(update: {
   return ch === "/" || ch === "、" ? { pos: head, char: ch } : null;
 }
 
+/* ── list-item Enter (hanging-indent sub-line) ────────────────────── */
+
+/** A list-item line: leading whitespace, a bullet / ordered / task marker,
+ * then the item text. Task boxes share the shape of the existing prefix
+ * regexes above (`- [ ] `, `- [x] `). */
+const LIST_ITEM_LINE = /^(\s*)((?:[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d{1,9}[.)][ \t]+))(.*)$/;
+
+/** Column width of the marker run (tabs expand to the 4-space indent unit). */
+function markerWidth(marker: string): number {
+  let width = 0;
+  for (const ch of marker) width += ch === "\t" ? 4 : 1;
+  return width;
+}
+
+/** Enter inside a list item continues on a sub-line indented to align with
+ * the item text (hanging indent): typing `- `/`1. ` there nests a child
+ * item, plain text continues the parent — the source keeps its hierarchy.
+ * Enter on a marker-only line strips the marker and exits the list instead.
+ * Returns null when the line is not a list item (default Enter applies). */
+export function planListContinue(state: EditorState): EditPlan | null {
+  const doc = state.doc;
+  const r = state.selection.main;
+  const fromLine = doc.lineAt(r.from);
+  const toLine = doc.lineAt(r.to);
+  if (fromLine.number !== toLine.number) return null;
+  const m = LIST_ITEM_LINE.exec(toLine.text);
+  if (!m) return null;
+  const [, lead, marker, content] = m;
+  if (r.to <= toLine.from + lead.length) return null; // cursor in the leading indent
+  if (content.trim() === "") {
+    // Marker with no text: the escape hatch out of the list.
+    return {
+      changes: { from: toLine.from, to: toLine.to, insert: "" },
+      selection: { anchor: toLine.from },
+    };
+  }
+  if (r.to < toLine.from + lead.length + marker.length) return null; // inside the marker
+  const insert = "\n" + lead + " ".repeat(markerWidth(marker));
+  return {
+    changes: { from: r.from, to: r.to, insert },
+    selection: { anchor: r.from + insert.length },
+  };
+}
+
+/** Keymap entry: claims Enter on list-item lines, falls through otherwise. */
+export function listContinueEnter(view: EditorView): boolean {
+  const plan = planListContinue(view.state);
+  if (!plan) return false;
+  dispatchPlan(view, plan, "input.type");
+  return true;
+}
+
 /* ── link & media insertions ──────────────────────────────────────── */
 
 export function insertLink(view: EditorView): boolean {

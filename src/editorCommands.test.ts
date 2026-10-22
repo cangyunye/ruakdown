@@ -11,6 +11,7 @@ import {
   insertLink,
   insertTable,
   insertVideo,
+  listContinueEnter,
   slashTrigger,
   togglePrefix,
   toggleWrap,
@@ -317,5 +318,60 @@ describe("togglePrefix on empty lines", () => {
     const doc = "- 一\n- 二\n";
     const r = run(doc, (v) => togglePrefix(v, "ul"), 0, doc.length);
     expect(r.text).toBe("一\n二\n");
+  });
+});
+
+describe("listContinueEnter (list-item sub-line Enter)", () => {
+  /** Press Enter at `from` (selection up to `to`) and capture claim + result. */
+  function enter(doc: string, from: number, to?: number) {
+    const view = makeView(doc, from, to);
+    const claimed = listContinueEnter(view);
+    const sel = view.state.selection.main;
+    return { claimed, text: view.state.doc.toString(), cursor: sel.head };
+  }
+
+  it("continues a bullet onto a sub-line aligned with the item text", () => {
+    const r = enter("- 父行", 4);
+    expect(r.claimed).toBe(true);
+    expect(r.text).toBe("- 父行\n  ");
+    expect(r.cursor).toBe(7);
+  });
+
+  it("aligns ordered markers by their width and task boxes by the full box", () => {
+    expect(enter("1. 一", 4).text).toBe("1. 一\n   ");
+    expect(enter("- [ ] 任务", 8).text).toBe("- [ ] 任务\n      ");
+    expect(enter("- [x] 完成", 8).text).toBe("- [x] 完成\n      ");
+  });
+
+  it("keeps existing nesting and accepts any bullet or ordered delimiter", () => {
+    expect(enter("  - 子", 5).text).toBe("  - 子\n    ");
+    expect(enter("* 星", 3).text).toBe("* 星\n  ");
+    expect(enter("2) 括号", 5).text).toBe("2) 括号\n   ");
+  });
+
+  it("splits mid-item with a selection, dropping it onto the sub-line", () => {
+    const r = enter("- abcd", 4, 6);
+    expect(r.text).toBe("- ab\n  ");
+    expect(r.cursor).toBe(7);
+  });
+
+  it("expands tab-separated markers to the 4-space indent unit", () => {
+    expect(enter("-\tx", 3).text).toBe("-\tx\n     ");
+  });
+
+  it("exits the list when the item is only a marker", () => {
+    expect(enter("- ", 2)).toMatchObject({ claimed: true, text: "", cursor: 0 });
+    expect(enter("3. ", 3)).toMatchObject({ claimed: true, text: "", cursor: 0 });
+    expect(enter("  - ", 4)).toMatchObject({ claimed: true, text: "", cursor: 0 });
+  });
+
+  it("falls through to the default Enter off list lines", () => {
+    expect(enter("正文内容", 4).claimed).toBe(false);
+    // Cursor inside the leading indent or the marker itself.
+    expect(enter("  - x", 1).claimed).toBe(false);
+    expect(enter("- x", 1).claimed).toBe(false);
+    // Selection spanning lines must not be treated as one item.
+    expect(enter("- a\n- b", 0, 7).claimed).toBe(false);
+    expect(enter("- a\n- b", 0, 7).text).toBe("- a\n- b");
   });
 });

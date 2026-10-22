@@ -26,6 +26,27 @@ mod tests {
         assert!(MD_CONTENT_CSS.contains(".tok-keyword"));
     }
 
+    /// List markers are content: ordinal numbers bold in the accent color,
+    /// bullets tinted, both hanging in the `ol`/`ul` padding so stacked items
+    /// form a left-aligned marker column. Losing these rules would silently
+    /// revert digits to body-style plain text on all three surfaces.
+    #[test]
+    fn list_markers_stay_styled_bold_accent() {
+        let rule = |selector: &str| {
+            let pos = MD_CONTENT_CSS
+                .find(selector)
+                .unwrap_or_else(|| panic!("{selector} missing from md-content.css"));
+            let open = MD_CONTENT_CSS[pos..].find('{').unwrap() + pos;
+            let close = MD_CONTENT_CSS[open..].find('}').unwrap() + open;
+            &MD_CONTENT_CSS[open + 1..close]
+        };
+        let ol = rule(".md-body ol > li::marker");
+        assert!(ol.contains("font-weight: 700"), "{ol}");
+        assert!(ol.contains("var(--accent)"), "{ol}");
+        let ul = rule(".md-body ul > li::marker");
+        assert!(ul.contains("var(--accent)"), "{ul}");
+    }
+
     // ---- theme slot contract (THEMES.md 「样式槽位的拓展」) ----
     //
     // The two style engines may consume a `--slot` WITHOUT a fallback only

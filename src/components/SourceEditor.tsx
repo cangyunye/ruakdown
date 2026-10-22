@@ -11,6 +11,7 @@ import {
   insertCodeBlock,
   insertLink,
   insertTable,
+  listContinueEnter,
   slashTrigger,
   togglePrefix,
   toggleWrap,
@@ -157,6 +158,12 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
   /** Keymap chord → editorCommands binding. Returning true claims the chord
    * (prevents the browser default) even when there was nothing to do. */
   const editorKeymap = [
+    // List-item Enter comes first so it wins over defaultKeymap's plain
+    // newline; it returns false on non-list lines and falls through.
+    {
+      key: "Enter",
+      run: (v: EditorView) => (v.composing ? false : listContinueEnter(v)),
+    },
     { key: "Mod-b", run: (v: EditorView) => toggleWrap(v, "**", "**", { placeholder: "粗体" }) },
     { key: "Mod-i", run: (v: EditorView) => toggleWrap(v, "*", "*", { placeholder: "斜体" }) },
     { key: "Mod-u", run: (v: EditorView) => toggleWrap(v, "<u>", "</u>", { placeholder: "下划线" }) },

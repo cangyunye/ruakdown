@@ -697,6 +697,19 @@ mod tests {
         assert!(!doc.html.contains("markdown-alert"), "{}", doc.html);
     }
 
+    /// Ordered lists keep native numbered markers — `<ol>` prints the
+    /// sequence, and a list that begins mid-count keeps its `start=` (a
+    /// blank line alone does not split same-marker lists, hence the
+    /// paragraph). The bold/accent look of the digits comes from the
+    /// `::marker` rules in md-content.css (contract-tested in style.rs).
+    #[test]
+    fn ordered_lists_render_native_numbered_markers() {
+        let doc = render_markdown("1. 一\n2. 二\n\n段落\n\n5. 接续\n");
+        assert!(doc.html.contains("<ol>"), "{}", doc.html);
+        assert!(doc.html.contains("<ol start=\"5\">"), "{}", doc.html);
+        assert_eq!(doc.html.matches("<li>").count(), 3, "{}", doc.html);
+    }
+
     #[test]
     fn tex_math_becomes_mathml() {
         let doc = render_markdown("行内 $a^2$ 与块级:\n\n$$\n\\frac{1}{2}\n$$\n");

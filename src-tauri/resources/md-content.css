@@ -302,12 +302,26 @@
 
 .md-body ul,
 .md-body ol {
-  padding-left: 1.6em;
+  padding-left: 2em;
   margin: 0.8em 0;
 }
 
 .md-body li {
   margin: 0.25em 0;
+}
+
+/* List markers are content, not chrome: ordinal numbers render bold in the
+   accent color (bullets take the color too), and the outside markers hang in
+   the padding so stacked items form a left-aligned marker column with the
+   text — and wrapped lines — indented under it. ::marker accepts font/color
+   properties only; the numbering itself stays native (decimal, start=…). */
+.md-body ol > li::marker {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.md-body ul > li::marker {
+  color: var(--accent);
 }
 
 .md-body input[type="checkbox"] {
