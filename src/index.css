@@ -251,6 +251,10 @@ body {
 }
 
 .tb-menu-item:hover,
+/* :focus, not just :focus-visible: menu arrow-nav moves DOM focus via
+   script .focus(), which WebKit (WKWebView) does not treat as
+   keyboard-originated — the highlight must track plain focus. */
+.tb-menu-item:focus,
 .tb-menu-item:focus-visible {
   background: var(--hover);
   outline: none;
@@ -599,6 +603,7 @@ body {
 }
 
 .ctx-menu .tb-menu-item.danger:hover,
+.ctx-menu .tb-menu-item.danger:focus,
 .ctx-menu .tb-menu-item.danger:focus-visible {
   background: rgba(220, 38, 38, 0.12);
 }
@@ -613,6 +618,7 @@ body {
 }
 
 .ctx-menu .tb-menu-item.disabled:hover,
+.ctx-menu .tb-menu-item.disabled:focus,
 .ctx-menu .tb-menu-item.disabled:focus-visible {
   background: transparent;
 }

@@ -235,4 +235,22 @@ mod tests {
             "theme JSON slots without a :root default in index.css: {missing:?}"
         );
     }
+
+    /// Menu arrow-navigation moves DOM focus via script `.focus()`, which
+    /// WebKit does not treat as keyboard-originated — `:focus-visible` does
+    /// not match, and the selection silently turns invisible. The highlight
+    /// must be painted on plain `:focus` (the comma form — `:focus-visible`
+    /// contains `:focus` as a substring, so a bare contains would pass even
+    /// without the fix).
+    #[test]
+    fn menu_highlight_tracks_plain_focus() {
+        assert!(
+            INDEX_CSS.contains(".tb-menu-item:focus,"),
+            "tb-menu-item must highlight on plain :focus"
+        );
+        assert!(
+            INDEX_CSS.contains(".danger:focus,"),
+            "danger items must highlight on plain :focus too"
+        );
+    }
 }
