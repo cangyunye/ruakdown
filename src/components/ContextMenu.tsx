@@ -36,13 +36,27 @@ interface Props {
    * listener, so the menu is keyboard-operable even when focus sits outside
    * it (the slash palette's default state). */
   windowKeyNav?: boolean;
+  /** Close on any scroll outside the menu (default true). The slash palette
+   * turns this off: in split view the preview rebuild re-anchors its scroll
+   * position on every keystroke, and that programmatic scroll must not
+   * dismiss the palette — the parent closes it on user editor scrolls. */
+  dismissOnScroll?: boolean;
 }
 
 /** Fixed-position context menu for the file tree. Reuses the TitleBar
  * dropdown's `.tb-menu` visual language; positioning, viewport clamping and
  * dismissal (outside pointerdown / Esc / scroll / resize / window blur) are
  * its own. */
-export default function ContextMenu({ x, y, entries, onClose, onSelect, autoFocus, windowKeyNav }: Props) {
+export default function ContextMenu({
+  x,
+  y,
+  entries,
+  onClose,
+  onSelect,
+  autoFocus,
+  windowKeyNav,
+  dismissOnScroll = true,
+}: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState({ x, y });
 
@@ -62,7 +76,7 @@ export default function ContextMenu({ x, y, entries, onClose, onSelect, autoFocu
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) onClose();
     };
     // Scrolling anywhere outside the menu dismisses it (inner menu scrolling
-    // must not).
+    // must not). Opt-out for anchors that programmatic scrolls don't move.
     const onScroll = (e: Event) => {
       if (!(e.target instanceof Node) || !rootRef.current?.contains(e.target)) onClose();
     };
@@ -74,18 +88,18 @@ export default function ContextMenu({ x, y, entries, onClose, onSelect, autoFocu
       }
     };
     document.addEventListener("pointerdown", onDown, true);
-    document.addEventListener("scroll", onScroll, true);
+    if (dismissOnScroll) document.addEventListener("scroll", onScroll, true);
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("resize", onClose);
     window.addEventListener("blur", onClose);
     return () => {
       document.removeEventListener("pointerdown", onDown, true);
-      document.removeEventListener("scroll", onScroll, true);
+      if (dismissOnScroll) document.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("resize", onClose);
       window.removeEventListener("blur", onClose);
     };
-  }, [onClose]);
+  }, [onClose, dismissOnScroll]);
 
   // Focus the first enabled item so ↑/↓ work immediately. A layout effect:
   // by paint time the menu is already keyboard-navigable, and focus needs no

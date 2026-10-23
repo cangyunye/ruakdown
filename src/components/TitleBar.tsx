@@ -11,6 +11,7 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { IS_MAC, MOD_KEY } from "../shortcuts";
 import type { Mode } from "../split";
+import { recentEntries } from "../quickOpen";
 
 /** True inside the Tauri webview, false in plain-browser `pnpm dev` and
  * jsdom tests — window controls and caption dragging need a native window. */
@@ -33,6 +34,9 @@ export interface TitleBarProps {
   shareAvailable: boolean;
   /** Runtime app version (Tauri `getVersion()`); null hides the menu footer. */
   version?: string | null;
+  /** Recently opened files (most recent first, max 10); rendered as a
+   * 最近打开文件 section in the more-actions menu. */
+  recentFiles: string[];
   onMode: (mode: Mode) => void;
   onZen: () => void;
   onFullscreen: () => void;
@@ -42,7 +46,20 @@ export interface TitleBarProps {
   onAction: (id: string) => void;
 }
 
-type MenuEntry = { type: "sep" } | { type: "item"; id: string; label: string; shortcut?: string };
+type MenuEntry =
+  | { type: "sep" }
+  /** Non-interactive muted section caption (最近打开文件). */
+  | { type: "header"; label: string }
+  | {
+      type: "item";
+      id: string;
+      label: string;
+      shortcut?: string;
+      /** Muted suffix after the label (parent-folder hint for recents). */
+      hint?: string;
+      /** Native tooltip; recents carry the full path. */
+      title?: string;
+    };
 
 /* ---------- icons (16px inline SVG, stroke = currentColor) ---------- */
 
@@ -346,10 +363,15 @@ function Dropdown({
           {entries.map((entry, i) =>
             entry.type === "sep" ? (
               <div className="tb-menu-sep" key={`sep-${i}`} />
+            ) : entry.type === "header" ? (
+              <div className="tb-menu-header" key={`header-${i}`}>
+                {entry.label}
+              </div>
             ) : (
               <button
                 key={entry.id}
                 type="button"
+                title={entry.title}
                 role={checkedId != null ? "menuitemradio" : "menuitem"}
                 aria-checked={checkedId != null ? entry.id === checkedId : undefined}
                 className="tb-menu-item"
@@ -359,7 +381,10 @@ function Dropdown({
                 }}
               >
                 <span className="tb-menu-check">{entry.id === checkedId && <IconCheck />}</span>
-                <span className="tb-menu-label">{entry.label}</span>
+                <span className="tb-menu-label">
+                  {entry.label}
+                  {entry.hint && <span className="tb-menu-hint">{entry.hint}</span>}
+                </span>
                 {entry.shortcut && <span className="tb-menu-sc">{entry.shortcut}</span>}
               </button>
             ),
@@ -386,6 +411,7 @@ export default function TitleBar({
   themeLabels,
   shareAvailable,
   version,
+  recentFiles,
   onMode,
   onZen,
   onFullscreen,
@@ -409,6 +435,8 @@ export default function TitleBar({
     [themeLabels],
   );
 
+  const recentList = useMemo(() => recentEntries(recentFiles), [recentFiles]);
+
   const moreEntries = useMemo<MenuEntry[]>(() => {
     const entries: MenuEntry[] = [
       { type: "item", id: "open-file", label: "打开文件…", shortcut: `${MOD_KEY}+O` },
@@ -418,13 +446,31 @@ export default function TitleBar({
       { type: "sep" },
       { type: "item", id: "doc-back", label: "后退(上一个文档)", shortcut: IS_MAC ? "⌘⌥←" : "Alt+←" },
       { type: "item", id: "doc-forward", label: "前进(下一个文档)", shortcut: IS_MAC ? "⌘⌥→" : "Alt+→" },
+    ];
+    if (recentList.length > 0) {
+      // 最近打开文件: id carries the absolute path (`recent:<path>`), routed
+      // back through onAction; ⌘/Ctrl+数字 jumps straight to the n-th entry.
+      entries.push(
+        { type: "sep" },
+        { type: "header", label: "最近打开文件" },
+        ...recentList.map((r, i) => ({
+          type: "item" as const,
+          id: `recent:${r.path}`,
+          label: r.name,
+          hint: r.dir,
+          title: r.path,
+          shortcut: i < 9 ? `${MOD_KEY}+${i + 1}` : undefined,
+        })),
+      );
+    }
+    entries.push(
       { type: "sep" },
       { type: "item", id: "find", label: "查找…", shortcut: `${MOD_KEY}+F` },
       { type: "item", id: "replace", label: "替换…", shortcut: `${MOD_KEY}+R` },
       { type: "item", id: "export-html", label: "导出 HTML…", shortcut: `${MOD_KEY}+E` },
       { type: "sep" },
       { type: "item", id: "toggle-sidebar", label: "显示/隐藏侧边栏", shortcut: `${MOD_KEY}+B` },
-    ];
+    );
     if (shareAvailable) {
       entries.push(
         { type: "sep" },
@@ -443,7 +489,7 @@ export default function TitleBar({
       { type: "item", id: "open-releases", label: "检查更新 (Releases)…" },
     );
     return entries;
-  }, [shareAvailable]);
+  }, [shareAvailable, recentList]);
 
   return (
     <header className="titlebar" onMouseDown={onDragMouseDown}>

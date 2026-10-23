@@ -53,7 +53,7 @@ pub struct Config {
     pub background: Option<BackgroundConfig>,
     pub zen: Option<ZenConfig>,
     pub split: Option<SplitConfig>,
-    /// Recently opened file paths (most recent first, max 15).
+    /// Recently opened file paths (most recent first, max 10).
     pub recent_files: Option<Vec<String>>,
     /// Folder (relative to the workspace root) where pasted resources are
     /// archived; the frontend defaults to "assets" when unset.

@@ -26,7 +26,7 @@ export function buildEditorMenuEntries(includeClipboard: boolean): CtxEntry[] {
     items.push(
       { type: "item", id: "cut", label: "剪切", shortcut: `${MOD_KEY}+X` },
       { type: "item", id: "copy", label: "复制", shortcut: `${MOD_KEY}+C` },
-      { type: "item", id: "paste", label: "粘贴", shortcut: `${MOD_KEY}+V` },
+      { type: "item", id: "paste", label: "粘贴为纯文本" },
       { type: "sep" },
       { type: "item", id: "new-subdoc", label: "新建子文档并引用" },
       { type: "sep" },

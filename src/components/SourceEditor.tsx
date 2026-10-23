@@ -23,6 +23,9 @@ export interface SourceEditorHandle {
   getTopLine: () => number;
   /** Scroll the given 1-based line to (near) the viewport top. */
   scrollToLine: (line: number) => void;
+  /** Outline jump: scroll the given 1-based line to the viewport top, move
+   * the cursor onto it and focus the editor. */
+  gotoLine: (line: number) => void;
   /** Replace the selection / insert at the cursor; returns false when the
    * view is gone. Triggers the normal onChange chain. */
   insertAtCursor: (insert: string) => boolean;
@@ -57,6 +60,12 @@ interface Props {
    * that carry files or carry no text at all — plain text always goes
    * through the native path. */
   onPasteFile?: (payload: PastePayload) => boolean;
+  /** Rich-text paste interceptor: receives the clipboard `text/html`
+   * flavour (browser / Office copies). Return true to claim the paste —
+   * the insert then happens via insertAtCursor, possibly asynchronously
+   * (asset archiving). Returning false falls back to the native plain-text
+   * paste; Shift+paste skips the interceptor entirely. */
+  onPasteHtml?: (html: string) => boolean;
   /** Fires with the live EditorView once it is created (search panel). */
   onViewReady?: (search: SourceSearch) => void;
   /** Fires just before the view is destroyed so the parent can drop its ref. */
@@ -125,7 +134,7 @@ const editorTheme = EditorView.theme({
 });
 
 const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor(
-  { initialText, text, onChange, onSave, onScroll, onOpenLink, onPasteFile, onViewReady, onViewDestroy, onFocusChange, onSlashTrigger, onUserInput },
+  { initialText, text, onChange, onSave, onScroll, onOpenLink, onPasteFile, onPasteHtml, onViewReady, onViewDestroy, onFocusChange, onSlashTrigger, onUserInput },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -145,6 +154,8 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
   onViewDestroyRef.current = onViewDestroy;
   const onPasteFileRef = useRef(onPasteFile);
   onPasteFileRef.current = onPasteFile;
+  const onPasteHtmlRef = useRef(onPasteHtml);
+  onPasteHtmlRef.current = onPasteHtml;
   const onFocusChangeRef = useRef(onFocusChange);
   onFocusChangeRef.current = onFocusChange;
   const onSlashTriggerRef = useRef(onSlashTrigger);
@@ -204,6 +215,17 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
       view.dispatch({
         effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 8 }),
       });
+    },
+    gotoLine: (line: number) => {
+      const view = viewRef.current;
+      if (!view || view.state.doc.lines === 0) return;
+      const clamped = Math.min(Math.max(1, line), view.state.doc.lines);
+      const l = view.state.doc.line(clamped);
+      view.dispatch({
+        selection: { anchor: l.from },
+        effects: EditorView.scrollIntoView(l.from, { y: "start", yMargin: 8 }),
+      });
+      view.focus();
     },
     insertAtCursor: (insert: string) => {
       const view = viewRef.current;
@@ -282,16 +304,38 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
               return true;
             },
             paste(event) {
-              const cb = onPasteFileRef.current;
-              if (!cb) return false;
+              const fileCb = onPasteFileRef.current;
+              const htmlCb = onPasteHtmlRef.current;
+              if (!fileCb && !htmlCb) return false;
+              // Shift+paste is the plain-text escape hatch: always native.
+              // (ClipboardEvent carries no typed shiftKey; engines vary.)
+              if ((event as ClipboardEvent & { shiftKey?: boolean }).shiftKey) {
+                return false;
+              }
               const dt = event.clipboardData;
               const files = Array.from(dt?.files ?? []);
               const text = dt?.getData("text/plain") ?? "";
-              // Text pastes stay native; file-only or empty pastes (the
+              // Screenshots / file copies win over any html flavour riding
+              // along; they go through asset archiving.
+              if (files.length > 0) {
+                if (!fileCb || !fileCb({ files, text })) return false;
+                event.preventDefault();
+                return true;
+              }
+              // Rich copies (browser / Office): convert to Markdown source.
+              // The interceptor decides synchronously; when it declines
+              // (a plain-text source) the native paste proceeds.
+              const html = dt?.getData("text/html") ?? "";
+              if (html && htmlCb) {
+                if (!htmlCb(html)) return false;
+                event.preventDefault();
+                return true;
+              }
+              // Plain text stays native; file-only or empty pastes (the
               // app-internal tree clipboard never touches the system
               // clipboard) go through the interceptor, which decides.
               if (text) return false;
-              if (!cb({ files, text })) return false;
+              if (!fileCb || !fileCb({ files, text })) return false;
               event.preventDefault();
               return true;
             },

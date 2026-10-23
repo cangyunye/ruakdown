@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TreeNode } from "./ipc";
-import { matchTree, rankRecent, upsertRecent } from "./quickOpen";
+import { matchTree, rankRecent, recentEntries, upsertRecent } from "./quickOpen";
 
 describe("upsertRecent", () => {
   it("adds a path to an empty history", () => {
@@ -15,12 +15,35 @@ describe("upsertRecent", () => {
     ]);
   });
 
-  it("caps the history length", () => {
-    const recent = Array.from({ length: 15 }, (_, i) => `/f${i}.md`);
+  it("caps the history at 10 entries", () => {
+    const recent = Array.from({ length: 12 }, (_, i) => `/f${i}.md`);
     const next = upsertRecent("/new.md", recent);
-    expect(next).toHaveLength(15);
+    expect(next).toHaveLength(10);
     expect(next[0]).toBe("/new.md");
-    expect(next).not.toContain("/f14.md");
+    expect(next).not.toContain("/f11.md");
+  });
+});
+
+describe("recentEntries", () => {
+  it("splits each path into a basename and a parent-folder name", () => {
+    expect(recentEntries(["C:\\笔记\\guide.md", "/root/readme.md"])).toEqual([
+      { path: "C:\\笔记\\guide.md", name: "guide.md", dir: "笔记" },
+      { path: "/root/readme.md", name: "readme.md", dir: "root" },
+    ]);
+  });
+
+  it("keeps recency order and caps at 10", () => {
+    const recent = Array.from({ length: 12 }, (_, i) => `/docs/f${i}.md`);
+    const entries = recentEntries(recent);
+    expect(entries).toHaveLength(10);
+    expect(entries[0]).toEqual({ path: "/docs/f0.md", name: "f0.md", dir: "docs" });
+    expect(entries.map((e) => e.path)).not.toContain("/docs/f11.md");
+  });
+
+  it("leaves a bare filename without a dir hint", () => {
+    expect(recentEntries(["notes.md"])).toEqual([
+      { path: "notes.md", name: "notes.md", dir: "" },
+    ]);
   });
 });
 

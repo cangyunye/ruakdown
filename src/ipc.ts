@@ -108,7 +108,7 @@ export interface AppConfig {
   background: BackgroundConfig | null;
   zen: ZenConfig | null;
   split: SplitConfig | null;
-  /** Recently opened file paths (most recent first, max 15). */
+  /** Recently opened file paths (most recent first, max 10). */
   recentFiles?: string[] | null;
   /** Archive folder for pasted resources, relative to the workspace root;
    * null/empty means the frontend default "assets". */

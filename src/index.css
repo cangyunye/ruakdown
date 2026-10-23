@@ -294,6 +294,25 @@ body {
   font-size: 11.5px;
 }
 
+/* Muted section caption inside a dropdown (最近打开文件). Not focusable —
+ * arrow navigation only stops on .tb-menu-item buttons. */
+.tb-menu-header {
+  padding: 6px 8px 3px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Muted suffix inside a menu label (parent-folder hint of a recent file);
+ * the ellipsis of .tb-menu-label covers the pair as one line. */
+.tb-menu-hint {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
 .tb-menu-sep {
   height: 1px;
   margin: 4px 8px;
@@ -1677,6 +1696,64 @@ html.split-resizing * {
 .empty-links a:hover {
   color: var(--accent);
   text-decoration: underline;
+}
+
+/* Empty-state 最近打开文件 list: one row per recent markdown, basename on
+ * the left, parent-folder hint pushed to the right. */
+.empty-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(460px, 82%);
+  margin-top: 22px;
+}
+
+.empty-recent-title {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  letter-spacing: 0.4px;
+}
+
+.empty-recent-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.empty-recent-item:hover,
+.empty-recent-item:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+
+.empty-recent-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-recent-dir {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 11.5px;
 }
 
 .primary-btn {

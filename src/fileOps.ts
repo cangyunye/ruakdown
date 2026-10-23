@@ -47,6 +47,12 @@ export function ensureMdExt(name: string): string {
   return /\.(md|markdown)$/i.test(name) ? name : `${name}.md`;
 }
 
+/** True for .md / .markdown paths (any case) — the only entries the
+ * recent-files history offers for reopening. */
+export function isMarkdownPath(p: string): boolean {
+  return /\.(md|markdown)$/i.test(p);
+}
+
 /** Name without the .md / .markdown suffix (for search prefill). */
 export function stemOf(name: string): string {
   return name.replace(/\.(md|markdown)$/i, "");

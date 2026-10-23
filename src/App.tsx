@@ -27,6 +27,7 @@ import {
   type DocHistory,
 } from "./docHistory";
 import { blockAtLine, headingOwners, lockAllows, nextSyncTarget, SYNC_LOCK_MS, type SyncLock } from "./scrollSync";
+import { headingLineById } from "./headingLocate";
 import { matchShortcut } from "./shortcuts";
 import {
   clearCallout,
@@ -69,6 +70,7 @@ import {
   findTreeNode,
   isImagePath,
   isInsideRoot,
+  isMarkdownPath,
   linkLabel,
   mdImageTag,
   mdLinkTag,
@@ -80,8 +82,9 @@ import {
   stemOf,
   entryNameError,
 } from "./fileOps";
-import { upsertRecent } from "./quickOpen";
+import { recentEntries, upsertRecent } from "./quickOpen";
 import { buildEditorMenuEntries } from "./editorMenuEntries";
+import { convertPasteHtml } from "./htmlToMarkdown";
 import ChunkedReader, { type ChunkedReaderHandle } from "./components/ChunkedReader";
 import SplitView from "./components/SplitView";
 import PreviewPane, { type PreviewPaneHandle } from "./components/PreviewPane";
@@ -262,6 +265,12 @@ export default function App() {
   const readerWrapRef = useRef<HTMLDivElement | null>(null);
   const recentFilesRef = useRef<string[]>([]);
   recentFilesRef.current = recentFiles;
+  /** Markdown-only view of the history — every reopen surface (title-bar
+   * 最近打开文件 section, empty-state list, Quick Open, Ctrl/Cmd+1..9) only
+   * offers .md documents even if a stray other file got opened. */
+  const mdRecent = useMemo(() => recentFiles.filter(isMarkdownPath), [recentFiles]);
+  const mdRecentRef = useRef(mdRecent);
+  mdRecentRef.current = mdRecent;
   const previewMetaRef = useRef<PreviewMeta | null>(null);
   previewMetaRef.current = previewMeta;
   // A chord can fire from both the native menu accelerator and the webview
@@ -496,13 +505,17 @@ export default function App() {
     [previewMeta],
   );
 
-  /** Editor scrolled (or jumped): drive the preview from its viewport top. */
+  /** Editor scrolled (or jumped): drive the preview from its viewport top.
+   * A user-driven scroll also dismisses the slash palette (its anchor is the
+   * cursor's viewport position, which the scroll moves); sync echo scrolls
+   * (the preview driving the editor back) leave it alone. */
   const handleEditorScroll = useCallback(() => {
     if (editorScrollRaf.current != null) return;
     editorScrollRaf.current = requestAnimationFrame(() => {
       editorScrollRaf.current = null;
       const now = Date.now();
       if (!lockAllows(syncLockRef.current, "editor", now)) return;
+      setSlashMenu((cur) => (cur == null ? cur : null));
       const ed = editorRef.current;
       const m = previewMetaRef.current;
       const pv = previewRef.current;
@@ -724,6 +737,26 @@ export default function App() {
     const path = await api.pickFile();
     if (path) await openFile(path);
   }, [openFile]);
+
+  /** Reopen an entry of the recent-files history (title-bar menu / empty
+   * state). A gone file surfaces the open error and is pruned by openFile.
+   * Clicking the already-open doc is a no-op rather than a silent reload. */
+  const openRecent = useCallback(
+    (path: string) => {
+      if (path === stateRef.current.currentFile) return;
+      void openFile(path);
+    },
+    [openFile],
+  );
+
+  /** Ctrl/Cmd+1..9: reopen the n-th recent markdown (1-based). */
+  const openRecentAt = useCallback(
+    (index: number) => {
+      const path = mdRecentRef.current[index];
+      if (path) openRecent(path);
+    },
+    [openRecent],
+  );
 
   // Open a file from search results, then position the view: read mode
   // scrolls the rendered text to the first match, split mode jumps the
@@ -1034,6 +1067,11 @@ export default function App() {
   // collapses.
   const routeActionRef = useRef<(id: string) => void>(() => {});
   routeActionRef.current = (id: string) => {
+    // 最近打开文件 entries encode the absolute path in the id.
+    if (id.startsWith("recent:")) {
+      openRecent(id.slice("recent:".length));
+      return;
+    }
     switch (id) {
       case "open-folder":
         void chooseFolder();
@@ -1617,6 +1655,50 @@ export default function App() {
     [],
   );
 
+  // ── Editor paste: rich text → Markdown source ──────────────────────
+  /** Convert a pasted text/html flavour to Markdown at the cursor. data:
+   * images ride through the same asset pipeline as file pastes; the final
+   * text goes in as one insertAtCursor dispatch, so one paste = one undo
+   * step. Returns false for plain-text sources so the native paste (which
+   * carries the proper text/plain flavour) proceeds instead. */
+  const editorPasteHtmlRef = useRef<(html: string) => boolean>(() => false);
+  editorPasteHtmlRef.current = (html) => {
+    const s = stateRef.current;
+    if (!s.currentFile || !s.root || !editorRef.current) return false;
+    const conv = convertPasteHtml(html);
+    if (!conv.isMarkup || (!conv.markdown && conv.images.length === 0)) return false;
+    const insertConverted = (md: string) => {
+      if (!editorRef.current?.insertAtCursor(md)) return;
+      if (conv.images.length > 0) {
+        setInfo(`已归档 ${conv.images.length} 张粘贴图片到资源目录`);
+      }
+    };
+    if (conv.images.length === 0) {
+      insertConverted(conv.markdown);
+      return true;
+    }
+    void (async () => {
+      try {
+        const destDir = assetDestDir(s.root, s.currentFile, s.assetsDir);
+        if (!s.root || !s.currentFile || !destDir) return;
+        let md = conv.markdown;
+        for (const img of conv.images) {
+          const base = assetBaseName(s.currentFile, img.filename);
+          const finalPath = await api.saveAsset(s.root, destDir, base, img.bytes);
+          md = md.split(img.placeholder).join(relativeLinkHref(s.currentFile, finalPath));
+        }
+        insertConverted(md);
+      } catch (err) {
+        setError("资源归档失败: " + String(err));
+      }
+    })();
+    return true;
+  };
+  const handleEditorPasteHtml = useCallback(
+    (html: string) => editorPasteHtmlRef.current(html),
+    [],
+  );
+
   const cancelDraft = useCallback(() => setDraft(null), []);
 
   const commitDraft = useCallback(
@@ -1945,11 +2027,17 @@ export default function App() {
         case "exit-fullscreen":
           void toggleFullscreen();
           break;
+        default: {
+          // Ctrl/Cmd+1..9: reopen the n-th recent markdown.
+          const m = /^recent-([1-9])$/.exec(action);
+          if (m) fireOnce(action, () => openRecentAt(Number(m[1]) - 1));
+          break;
+        }
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, openQuickOpen, openFind, chooseFolder, chooseFile, saveDoc, exportHtml, fullscreenOn, zenOn, quickOpen, findOpen, settingsOpen, sidebarVisible, draft, goBackDoc, goForwardDoc]);
+  }, [fireOnce, toggleZen, toggleFullscreen, switchMode, openQuickOpen, openFind, chooseFolder, chooseFile, saveDoc, exportHtml, openRecentAt, fullscreenOn, zenOn, quickOpen, findOpen, settingsOpen, sidebarVisible, draft, goBackDoc, goForwardDoc]);
 
   // The reader gutters (left/right of the centered 860px body) belong to the
   // overflow-hidden wrapper, so the wheel hits a dead zone there — forward it
@@ -2214,25 +2302,29 @@ export default function App() {
 
   const bgFileName = bg.path?.split(/[\\/]/).pop() ?? null;
 
-  const jumpToHeading = useCallback(
-    (id: string) => {
-      if (stateRef.current.mode === "split") {
-        // Outline click in split view: jump the editor to the heading's
-        // source line; the preview follows via scroll sync.
-        const m = previewMetaRef.current;
-        const item = m?.outline.find((o) => o.id === id);
-        const line = item?.bi != null ? m?.blocks[item.bi]?.startLine : undefined;
-        if (line != null) editorRef.current?.scrollToLine(line);
-        return;
-      }
-      if (stateRef.current.doc?.chunked) {
-        chunkedReaderRef.current?.jumpTo(id);
-      } else {
-        document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-      }
-    },
-    [],
-  );
+  const jumpToHeading = useCallback((id: string) => {
+    if (stateRef.current.mode === "split") {
+      // Outline click in split view: jump the editor to the heading's
+      // source line; the preview follows via scroll sync.
+      const m = previewMetaRef.current;
+      const item = m?.outline.find((o) => o.id === id);
+      const line = item?.bi != null ? m?.blocks[item.bi]?.startLine : undefined;
+      if (line != null) editorRef.current?.scrollToLine(line);
+      return;
+    }
+    if (stateRef.current.mode === "edit") {
+      // Outline click in source view: replay the renderer's heading-id
+      // allocation over the live buffer to find the heading's line.
+      const line = headingLineById(editTextRef.current).get(id);
+      if (line != null) editorRef.current?.gotoLine(line);
+      return;
+    }
+    if (stateRef.current.doc?.chunked) {
+      chunkedReaderRef.current?.jumpTo(id);
+    } else {
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
 
   // The sidebar outline in split view comes from the live preview build so
   // it stays aligned with the edited buffer.
@@ -2259,6 +2351,7 @@ export default function App() {
           themeLabels={themeLabels}
           shareAvailable={shareAvailable}
           version={appVersion || null}
+          recentFiles={mdRecent}
           onMode={(next) => void switchMode(next)}
           onZen={() => void toggleZen()}
           onFullscreen={() => void toggleFullscreen()}
@@ -2364,6 +2457,7 @@ export default function App() {
                           onScroll={handleEditorScroll}
                           onOpenLink={handleOpenLink}
                           onPasteFile={handleEditorPasteFile}
+                          onPasteHtml={handleEditorPasteHtml}
                           onViewReady={handleEditorViewReady}
                           onViewDestroy={handleEditorViewDestroy}
                           onFocusChange={handleEditorFocusChange}
@@ -2414,8 +2508,10 @@ export default function App() {
                       text={doc.text}
                       onChange={handleEditorChange}
                       onSave={saveDoc}
+                      onScroll={handleEditorScroll}
                       onOpenLink={handleOpenLink}
                       onPasteFile={handleEditorPasteFile}
+                      onPasteHtml={handleEditorPasteHtml}
                       onViewReady={handleEditorViewReady}
                       onViewDestroy={handleEditorViewDestroy}
                       onFocusChange={handleEditorFocusChange}
@@ -2512,6 +2608,23 @@ export default function App() {
                   打开文件
                 </button>
               </div>
+              {mdRecent.length > 0 && (
+                <div className="empty-recent">
+                  <div className="empty-recent-title">最近打开文件</div>
+                  {recentEntries(mdRecent).map((r) => (
+                    <button
+                      key={r.path}
+                      type="button"
+                      className="empty-recent-item"
+                      title={r.path}
+                      onClick={() => openRecent(r.path)}
+                    >
+                      <span className="empty-recent-name">{r.name}</span>
+                      {r.dir && <span className="empty-recent-dir">{r.dir}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="empty-links">
                 <a
                   href={REPO_URL}
@@ -2541,7 +2654,7 @@ export default function App() {
       {quickOpen && (
         <QuickOpen
           root={root}
-          recent={recentFiles}
+          recent={mdRecent}
           tree={tree}
           initialContent={quickContent}
           initialQuery={quickQuery}
@@ -2583,6 +2696,7 @@ export default function App() {
           onSelect={runSlashAction}
           autoFocus={false}
           windowKeyNav
+          dismissOnScroll={false}
         />
       )}
 

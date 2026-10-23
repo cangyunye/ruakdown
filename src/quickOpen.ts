@@ -1,4 +1,6 @@
-/** Pure helpers for the Quick Open modal (recent files + filename search). */
+/** Pure helpers for the recent-files history and the Quick Open modal
+ * (filename search). The recent list itself is consumed by Quick Open, the
+ * title-bar 最近打开文件 section and the empty-state list. */
 import type { TreeNode } from "./ipc";
 
 /** A filename hit in the current folder tree. */
@@ -9,9 +11,42 @@ export interface FileHit {
   dir: string;
 }
 
+/** How many recent files are kept and offered (Quick Open, title-bar menu
+ * and the empty state all share one list). */
+export const RECENT_CAP = 10;
+
 /** Insert `path` at the front of `recent`, de-duplicated and capped. */
-export function upsertRecent(path: string, recent: string[], cap = 15): string[] {
+export function upsertRecent(path: string, recent: string[], cap = RECENT_CAP): string[] {
   return [path, ...recent.filter((p) => p !== path)].slice(0, cap);
+}
+
+/** Display model for a recent-files row: basename plus parent-folder hint. */
+export interface RecentEntry {
+  path: string;
+  name: string;
+  dir: string;
+}
+
+function basename(path: string): string {
+  const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+  return idx > 0 ? path.slice(idx + 1) : path;
+}
+
+/** Immediate parent folder *name* (not the full path) — the display hint
+ * shared with Quick Open rows. */
+function parentName(path: string): string {
+  const parts = path.split(path.includes("\\") ? "\\" : "/");
+  return parts.length < 2 ? "" : parts[parts.length - 2];
+}
+
+/** The first `max` recent paths with display fields precomputed — consumed
+ * by the title-bar 最近打开文件 section and the empty-state list. */
+export function recentEntries(recent: string[], max = RECENT_CAP): RecentEntry[] {
+  return recent.slice(0, max).map((p) => ({
+    path: p,
+    name: basename(p),
+    dir: parentName(p),
+  }));
 }
 
 /** History entries whose full path contains `query` (case-insensitive),

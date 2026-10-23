@@ -173,6 +173,7 @@ fn row_html(row: &Row) -> String {
             escape_html(&normalize_date(&text).unwrap_or(text)),
         ),
         "description" => (" fm-desc", "", escape_html(&text)),
+        "references" => reference_html(row),
         _ if structured => (" fm-items-row", " fm-items", items_html(row)),
         _ => ("", "", escape_html(&text)),
     };
@@ -214,6 +215,88 @@ fn items_html(row: &Row) -> String {
         ));
     }
     lines.join("")
+}
+
+/// `references` row: every entry renders as a themed link (`<a class="fm-ref">`)
+/// so local paths open in the app and web URLs in the browser. Scalar
+/// comma-separated values and plain `- entry` items join on one wrapped line;
+/// structured (`k: v`) items keep the one-item-per-line look, linking the
+/// value of the pair that names the target.
+fn reference_html(row: &Row) -> (&'static str, &'static str, String) {
+    let structured = row.items.iter().any(|item| !item.pairs.is_empty());
+    if !structured {
+        let mut links: Vec<String> = split_entries(&row.text)
+            .into_iter()
+            .map(ref_link)
+            .collect();
+        for item in &row.items {
+            links.extend(split_entries(&item.text).into_iter().map(ref_link));
+        }
+        if links.is_empty() {
+            return ("", "", String::new());
+        }
+        return ("", " fm-refs", links.join(", "));
+    }
+    let mut lines: Vec<String> = Vec::new();
+    if !row.text.is_empty() {
+        let links: Vec<String> = split_entries(&row.text).into_iter().map(ref_link).collect();
+        if !links.is_empty() {
+            lines.push(format!(
+                "<span class=\"fm-item\">{}</span>",
+                links.join(", ")
+            ));
+        }
+    }
+    for item in &row.items {
+        let mut parts: Vec<String> = item
+            .pairs
+            .iter()
+            .map(|(k, v)| {
+                let target = if is_ref_target_key(k) { ref_link(v) } else { escape_html(v) };
+                format!(
+                    "<span class=\"fm-pair\"><span class=\"fm-pair-key\">{}:</span> {target}</span>",
+                    escape_html(k)
+                )
+            })
+            .collect();
+        if !item.text.is_empty() {
+            let links: Vec<String> =
+                split_entries(&item.text).into_iter().map(ref_link).collect();
+            parts.push(links.join(", "));
+        }
+        if parts.is_empty() {
+            continue;
+        }
+        lines.push(format!(
+            "<span class=\"fm-item\">{}</span>",
+            parts.join("<span class=\"fm-sep\"> · </span>")
+        ));
+    }
+    (" fm-items-row", " fm-items", lines.join(""))
+}
+
+/// Pair keys whose value names the link target of a structured reference.
+fn is_ref_target_key(key: &str) -> bool {
+    ["path", "url", "href", "link", "file"]
+        .iter()
+        .any(|c| key.eq_ignore_ascii_case(c))
+}
+
+/// Split an entry list on the same separators as [`chip_html`].
+fn split_entries(val: &str) -> Vec<&str> {
+    val.split([',', '，', '、', ';', '；'])
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .collect()
+}
+
+/// One reference entry as a link; the raw value is both href and label.
+fn ref_link(value: &str) -> String {
+    format!(
+        "<a class=\"fm-ref\" href=\"{}\">{}</a>",
+        escape_html(value),
+        escape_html(value)
+    )
 }
 
 /// Split a comma / 顿号 / semicolon separated value into colored capsule spans.
@@ -355,6 +438,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn references_render_as_links_in_every_shape() {
+        // Scalar comma list on the key line.
+        let card = card_html("references: auth.md, https://example.com\n");
+        assert!(
+            card.contains("<a class=\"fm-ref\" href=\"auth.md\">auth.md</a>"),
+            "{card}"
+        );
+        assert!(
+            card.contains("<a class=\"fm-ref\" href=\"https://example.com\">https://example.com</a>"),
+            "{card}"
+        );
+        // Plain `- entry` items: one link per item.
+        let card = card_html("references:\n  - notes/a.md\n  - docs/b.md\n");
+        assert!(card.contains("fm-refs"), "{card}");
+        assert!(card.contains("href=\"notes/a.md\""), "{card}");
+        assert!(card.contains("href=\"docs/b.md\""), "{card}");
+        // Structured items: the path pair links, desc stays plain text.
+        let card = card_html(
+            "references:\n  - path: auth.md\n    desc: 安全鉴权\n",
+        );
+        assert!(card.contains("fm-items"), "{card}");
+        assert!(card.contains("fm-pair-key\">path:</span> <a class=\"fm-ref\" href=\"auth.md\">auth.md</a>"), "{card}");
+        assert!(card.contains("fm-pair-key\">desc:</span> 安全鉴权"), "{card}");
+        // Values are attribute-escaped.
+        let card = card_html("references: a\"b.md\n");
+        assert!(card.contains("href=\"a&quot;b.md\""), "{card}");
+        // Flow-array key line: the quick-insert template ships this shape.
+        let card = card_html("references: [./相关文档.md, https://example.com]\n");
+        assert!(card.contains("href=\"./相关文档.md\""), "{card}");
+        assert!(card.contains("href=\"https://example.com\""), "{card}");
+    }
+
+    #[test]
+    fn references_key_matches_case_insensitively_and_stays_plain_when_empty() {
+        let card = card_html("References: []\n");
+        assert!(card.contains("<span class=\"fm-key\">References</span>"), "{card}");
+        assert!(!card.contains("fm-ref"), "{card}");
+    }
+
+    #[test]
     fn card_renders_keys_values_lists_and_quotes() {
         let card = card_html("title: 示例文档\ntags:\n  - rust\n  - tauri\nquoted: \"a: b\"\n# 注释\n\n");
         assert!(card.contains("fm-row fm-title"), "{card}");
@@ -381,7 +504,7 @@ mod tests {
     #[test]
     fn nested_object_arrays_render_one_item_per_line() {
         let card = card_html(
-            "references:\n  - path: auth\n    desc: 安全鉴权\n  - path: layout\n    desc: UI 布局\n",
+            "deps:\n  - path: auth\n    desc: 安全鉴权\n  - path: layout\n    desc: UI 布局\n",
         );
         assert!(card.contains("fm-items-row"), "{card}");
         assert!(card.contains("fm-pair-key\">path:</span> auth"), "{card}");

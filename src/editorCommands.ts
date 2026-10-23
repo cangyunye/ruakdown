@@ -197,14 +197,17 @@ export function insertMindmap(view: EditorView): boolean {
 /* ── frontmatter (document metadata block) ────────────────────────── */
 
 /** Quick-insert template: the example values double as fill-in hints the
- * user replaces field by field (`name` arrives pre-selected). */
+ * user replaces field by field (`name` arrives pre-selected). The
+ * `references` sample demonstrates both writable link shapes at once — a
+ * repo-relative document path and a web URL, comma separated — which the
+ * renderer turns into themed links. */
 export const FRONTMATTER_TEMPLATE =
   "---\n" +
   "name: 示例名称\n" +
   "description: 一句话描述这份文档的内容与用途。\n" +
   "keywords: [关键词一, 关键词二, 关键词三]\n" +
   "tags: []\n" +
-  "references: []\n" +
+  "references: [./相关文档.md, https://example.com]\n" +
   "---";
 
 /** The shape the renderer parses (pulldown-cmark's YAML-style metadata

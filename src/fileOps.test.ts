@@ -9,6 +9,7 @@ import {
   findTreeNode,
   isImagePath,
   isInsideRoot,
+  isMarkdownPath,
   linkLabel,
   mdImageTag,
   mdLinkTag,
@@ -62,6 +63,13 @@ describe("name helpers", () => {
     expect(stemOf("笔记.md")).toBe("笔记");
     expect(stemOf("a.b.markdown")).toBe("a.b");
     expect(stemOf("notes.txt")).toBe("notes.txt");
+  });
+
+  it("isMarkdownPath accepts both extensions, any case", () => {
+    expect(isMarkdownPath("F:\\vault\\a.md")).toBe(true);
+    expect(isMarkdownPath("/vault/笔记.MARKDOWN")).toBe(true);
+    expect(isMarkdownPath("/vault/notes.txt")).toBe(false);
+    expect(isMarkdownPath("/vault/mdp")).toBe(false);
   });
 
   it("entryNameError mirrors the Rust rules and sibling check", () => {

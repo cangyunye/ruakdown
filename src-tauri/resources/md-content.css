@@ -112,6 +112,18 @@
   color: var(--muted);
 }
 
+/* references entries: themed links. The app routes clicks through its link
+   handler (local md → in-app open, web → browser); export/share pages get
+   the same look via the shared stylesheet. */
+.fm-ref {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.fm-ref:hover {
+  text-decoration: underline;
+}
+
 .fm-chips {
   display: flex;
   flex-wrap: wrap;

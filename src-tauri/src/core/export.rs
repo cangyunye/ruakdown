@@ -7,7 +7,9 @@ pub struct ExportOptions {
 
 /// Offline-capable, standalone HTML export. Same pulldown-cmark pipeline as
 /// the reader view, theme CSS inlined, `mermaid_js` = full mermaid.min.js
-/// source when available (None falls back to a CDN script tag).
+/// source when available (None falls back to a CDN script tag). Documents
+/// with headings also carry the share page's side directory (fixed panel +
+/// toggle button).
 pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions) -> String {
     let rendered = markdown::render_markdown(source);
     let theme = theme::get(&opts.theme_id).or_else(|| theme::get("light")).expect("builtin theme");
@@ -25,6 +27,7 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
 
     let title = html_escape(&opts.title);
     let scheme = if theme.dark { "dark" } else { "light" };
+    let toc = toc_html(&rendered.outline);
 
     format!(
         r#"<!doctype html>
@@ -43,7 +46,18 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
 <article class="md-body">
 {body}
 </article>
+{toc}
 {mermaid_script}
+<script>
+(function () {{
+  var toc = document.getElementById("toc");
+  var btn = document.getElementById("tocbtn");
+  if (!toc || !btn) return;
+  // Open by default where there is room for the fixed panel; toggle after.
+  if (window.innerWidth < 1080) toc.classList.add("hidden");
+  btn.onclick = function () {{ toc.classList.toggle("hidden"); }};
+}})();
+</script>
 <script>
 (function () {{
   function render() {{
@@ -76,6 +90,7 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
         EXPORT_CSS = EXPORT_CSS,
         md_css = crate::core::style::MD_CONTENT_CSS,
         body = rendered.html,
+        toc = toc,
         mermaid_script = mermaid_script,
         dark = if theme.dark { "1" } else { "0" },
         scheme = scheme,
@@ -86,9 +101,37 @@ fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-/// Export page shell: base reset, layout container and the syntax palette
-/// (bound to `data-scheme`, unlike the share page's media query). Markdown
-/// content styles come from [`crate::core::style::MD_CONTENT_CSS`].
+/// The share page's side directory: a fixed panel of heading anchors plus a
+/// toggle button, hidden on narrow windows by the inline script below.
+/// No outline (no headings) → no markup at all.
+fn toc_html(outline: &[markdown::OutlineItem]) -> String {
+    if outline.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "<button id=\"tocbtn\" type=\"button\">目录</button>\n<nav id=\"toc\">\n",
+    );
+    for item in outline {
+        let class = match item.level {
+            2 => " class=\"lv2\"",
+            3 => " class=\"lv3\"",
+            l if l >= 4 => " class=\"lv4\"",
+            _ => "",
+        };
+        out.push_str(&format!(
+            "<a{class} href=\"#{id}\">{text}</a>\n",
+            id = html_escape(&item.id),
+            text = html_escape(&item.text),
+        ));
+    }
+    out.push_str("</nav>\n");
+    out
+}
+
+/// Export page shell: base reset, layout container, the side-directory panel
+/// and the syntax palette (bound to `data-scheme`, unlike the share page's
+/// media query). Markdown content styles come from
+/// [`crate::core::style::MD_CONTENT_CSS`].
 const EXPORT_CSS: &str = r#"
 * { box-sizing: border-box; }
 body {
@@ -100,12 +143,50 @@ body {
 }
 .md-body { max-width: 860px; margin: 0 auto; padding: 40px 48px 80px; line-height: 1.75; }
 :root[data-scheme="light"] { --syn-keyword:#cf222e; --syn-string:#0a3069; --syn-comment:#6e7781; --syn-number:#0550ae; --syn-const:#0550ae; --syn-function:#8250df; --syn-type:#953800; --syn-variable:#0550ae; --syn-tag:#116329; --syn-attr:#0550ae; }
-:root[data-scheme="dark"] { --syn-keyword:#ff7b72; --syn-string:#a5d6ff; --syn-comment:#8b949e; --syn-number:#79c0ff; --syn-const:#79c0ff; --syn-function:#d2a8ff; --syn-type:#ffa657; --syn-variable:#79c0ff; --syn-tag:#7ee787; --syn-attr:#79c0ff; }
+:root[data-scheme="dark"] { --syn-keyword:#ff7b72; --syn-string:#a5d6ff; --syn-comment:#8b949e; --syn-number:#79c0ff; --syn-const:#79c0ff; --syn-function:#d2a8ff; --syn-type:#ffa657; --syn-variable:#0550ae; --syn-tag:#7ee787; --syn-attr:#79c0ff; }
+html { scroll-behavior: smooth; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 { scroll-margin-top: 16px; }
+#tocbtn { position: fixed; top: 12px; right: 12px; z-index: 21; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text); border-radius: 6px; padding: 4px 12px;
+  font-size: 12px; cursor: pointer; }
+#tocbtn:hover { border-color: var(--accent); color: var(--accent); }
+#toc { position: fixed; top: 46px; right: 12px; width: 280px; max-height: 72vh; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; z-index: 20; font-size: 13px; }
+#toc.hidden { display: none; }
+#toc a { display: block; color: var(--text); text-decoration: none; padding: 4px 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 4px; }
+#toc a:hover { color: var(--accent); background: var(--accent-soft); }
+#toc a.lv2 { padding-left: 20px; }
+#toc a.lv3 { padding-left: 34px; font-size: 12px; }
+#toc a.lv4 { padding-left: 48px; font-size: 12px; color: var(--muted); }
+@media print { #toc, #tocbtn { display: none; } }
 "#;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_embeds_side_toc_when_headings_exist() {
+        let html = export_html(
+            "# 概览\n\n## 用法\n\n正文\n",
+            None,
+            &ExportOptions { theme_id: "light".into(), title: "t".into() },
+        );
+        assert!(html.contains("id=\"tocbtn\""), "{}", html);
+        assert!(html.contains("<nav id=\"toc\">"), "{}", html);
+        assert!(html.contains("<a class=\"lv2\" href=\"#用法\">用法</a>"), "{}", html);
+        assert!(html.contains("toc.classList.toggle"), "{}", html);
+        // No headings → no directory markup at all.
+        let html = export_html(
+            "只有正文\n",
+            None,
+            &ExportOptions { theme_id: "light".into(), title: "t".into() },
+        );
+        assert!(!html.contains("<nav id=\"toc\">"), "{}", html);
+        assert!(!html.contains("id=\"tocbtn\""), "{}", html);
+    }
 
     #[test]
     fn export_contains_html_skeleton_and_mermaid() {
@@ -141,3 +222,4 @@ mod tests {
         assert!(html.contains(".math-display"), "{}", html);
     }
 }
+

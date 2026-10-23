@@ -275,3 +275,39 @@ describe("matchShortcut · document history (Alt+Arrows)", () => {
     expect(matchShortcut(press({ key: "d", altKey: true }), idle)).toBeNull();
   });
 });
+
+describe("matchShortcut · recent files (Ctrl/Cmd+1..9)", () => {
+  const ctrl = (key: string, shift = false) =>
+    press({ key, ctrlKey: true, metaKey: false, shiftKey: shift });
+
+  it("targets the n-th recent entry with Ctrl+digit", () => {
+    expect(matchShortcut(ctrl("1"), idle)).toBe("recent-1");
+    expect(matchShortcut(ctrl("5"), idle)).toBe("recent-5");
+    expect(matchShortcut(ctrl("9"), idle)).toBe("recent-9");
+  });
+
+  it("accepts Cmd+digit on mac too", () => {
+    expect(matchShortcut(press({ key: "3", metaKey: true }), idle)).toBe("recent-3");
+  });
+
+  it("ignores Shift+digit, bare digits and 0", () => {
+    expect(matchShortcut(ctrl("2", true), idle)).toBeNull();
+    expect(matchShortcut(press({ key: "2" }), idle)).toBeNull();
+    expect(matchShortcut(ctrl("0"), idle)).toBeNull();
+  });
+
+  it("leaves Ctrl+Alt+digit to the editor heading chords (and AltGr typing)", () => {
+    expect(
+      matchShortcut(press({ key: "1", ctrlKey: true, altKey: true }), idle),
+    ).toBeNull();
+    expect(
+      matchShortcut(press({ key: "3", ctrlKey: true, altKey: true }), editor),
+    ).toBeNull();
+  });
+
+  it("stays out of open modals and panels", () => {
+    expect(matchShortcut(ctrl("1"), modal)).toBeNull();
+    expect(matchShortcut(ctrl("1"), { ...idle, findOpen: true })).toBeNull();
+    expect(matchShortcut(ctrl("1"), { ...idle, settingsOpen: true })).toBeNull();
+  });
+});

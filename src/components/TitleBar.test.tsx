@@ -22,6 +22,7 @@ function renderBar(over: Partial<TitleBarProps> = {}) {
     themeName: "light",
     themeLabels: THEME_LABELS,
     shareAvailable: false,
+    recentFiles: [],
     onMode: () => {},
     onZen: () => {},
     onFullscreen: () => {},
@@ -158,5 +159,45 @@ describe("TitleBar", () => {
 
     fireEvent.click(screen.getByTitle("更多操作"));
     expect(screen.queryByText(/Ruakdown v/)).toBeNull();
+  });
+});
+
+describe("TitleBar · 最近打开文件", () => {
+  it("lists at most 10 recent files under a section header", () => {
+    const recent = Array.from({ length: 12 }, (_, i) => `/docs/f${i}.md`);
+    renderBar({ recentFiles: recent });
+
+    fireEvent.click(screen.getByTitle("更多操作"));
+    expect(screen.getByText("最近打开文件")).toBeInTheDocument();
+    expect(screen.getByText("f0.md")).toBeInTheDocument();
+    expect(screen.getByText("f9.md")).toBeInTheDocument();
+    expect(screen.queryByText("f10.md")).not.toBeInTheDocument();
+  });
+
+  it("omits the section when the history is empty", () => {
+    renderBar({ recentFiles: [] });
+
+    fireEvent.click(screen.getByTitle("更多操作"));
+    expect(screen.queryByText("最近打开文件")).not.toBeInTheDocument();
+  });
+
+  it("routes a click through onAction with a recent:<path> id", () => {
+    const onAction = vi.fn();
+    renderBar({ onAction, recentFiles: ["/docs/notes.md"] });
+
+    fireEvent.click(screen.getByTitle("更多操作"));
+    // The full path doubles as the row tooltip, which disambiguates the click
+    // target from the doc-name label in the bar.
+    fireEvent.click(screen.getByTitle("/docs/notes.md"));
+    expect(onAction).toHaveBeenCalledWith("recent:/docs/notes.md");
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("shows the parent-folder hint and the full-path tooltip", () => {
+    renderBar({ recentFiles: ["/docs/notes.md"] });
+
+    fireEvent.click(screen.getByTitle("更多操作"));
+    expect(screen.getByText("docs")).toBeInTheDocument();
+    expect(screen.getByTitle("/docs/notes.md")).toBeInTheDocument();
   });
 });

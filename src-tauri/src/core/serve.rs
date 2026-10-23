@@ -809,6 +809,17 @@ const SERVE_PAGE_TAIL: &str = r#"#toc { position:fixed; top:48px; right:12px; wi
   });
 
   document.getElementById('tocbtn').onclick = function () { tocEl.classList.toggle('open'); };
+  // Frontmatter reference links: web targets open in a new tab; local paths
+  // only resolve on the authoring machine, so say so instead of 404-navigating.
+  docEl.addEventListener('click', function (e) {
+    var t = e.target;
+    var a = t && t.closest ? t.closest('a.fm-ref') : null;
+    if (!a) return;
+    e.preventDefault();
+    var href = a.getAttribute('href') || '';
+    if (/^https?:/i.test(href)) window.open(href, '_blank', 'noopener');
+    else toast('本地链接仅在本机应用中可打开');
+  });
   editBtn.onclick = function () {
     if (!st.text) return;
     st.editing = true;

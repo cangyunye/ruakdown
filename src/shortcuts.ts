@@ -13,14 +13,14 @@ export const IS_MAC =
   typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
 
 /** A global shortcut chord, normalized from a DOM KeyboardEvent. Only the
- * fields the router cares about are modelled; `altKey` is only consulted by
- * the document-history chords (Alt+Arrows). */
+ * fields the router cares about are modelled; `altKey` is consulted by the
+ * document-history chords (Alt+Arrows) and as an exclusion for the
+ * recent-file digits (Ctrl+Alt+digit belongs to the editor). */
 export interface ShortcutKey {
   key: string;
   ctrlKey: boolean;
   metaKey: boolean;
   shiftKey: boolean;
-  /** Modelled for completeness; deliberately ignored by the router. */
   altKey?: boolean;
   /** IME composition in progress (Chinese IMEs report key "Process") —
    * chords must never fire mid-composition. */
@@ -65,7 +65,16 @@ export type ShortcutAction =
   | "zen-next"
   | "zen-prev"
   | "zen-exit"
-  | "exit-fullscreen";
+  | "exit-fullscreen"
+  | "recent-1"
+  | "recent-2"
+  | "recent-3"
+  | "recent-4"
+  | "recent-5"
+  | "recent-6"
+  | "recent-7"
+  | "recent-8"
+  | "recent-9";
 
 /**
  * Map a keydown event to a global shortcut action, or null when the chord is
@@ -125,6 +134,24 @@ export function matchShortcut(
   // accelerators fire regardless of which panel is focused).
   if (mod && !e.shiftKey && key === "s") return "save";
   if (mod && !e.shiftKey && key === "e") return "export-html";
+  // Reopen a recent file: Ctrl/Cmd+1..9 targets the n-th 最近打开文件 entry
+  // (the 10th exists in the menu but has no chord — only 1..9 are reachable
+  // on the number row). Alt must be up: Ctrl+Alt+1..6 are the editor's
+  // heading-level chords, and AltGr+digit types characters on some layouts.
+  // Like the doc-history chords, it stays out of open modals and panels so
+  // no document switches behind them.
+  if (
+    mod &&
+    !e.shiftKey &&
+    !e.altKey &&
+    key >= "1" &&
+    key <= "9" &&
+    !s.quickOpen &&
+    !s.findOpen &&
+    !s.settingsOpen
+  ) {
+    return `recent-${key}` as ShortcutAction;
+  }
   // Open folder / open file yield to the editor when it holds focus
   // (Ctrl+O inserts a table there).
   if (mod && key === "o" && !s.editorFocused) {
