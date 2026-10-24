@@ -7,8 +7,10 @@ pub struct ExportOptions {
 
 /// Offline-capable, standalone HTML export. Same pulldown-cmark pipeline as
 /// the reader view, theme CSS inlined, `mermaid_js` = full mermaid.min.js
-/// source when available (None falls back to a CDN script tag). Documents
-/// with headings also carry the share page's side directory (fixed panel +
+/// source when available (None falls back to a CDN script tag). The mermaid
+/// library is several MB, so it (and the render bootstrap) are only emitted
+/// when the document actually contains mermaid blocks. Documents with
+/// headings also carry the share page's side directory (fixed panel +
 /// toggle button).
 pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions) -> String {
     let rendered = markdown::render_markdown(source);
@@ -19,45 +21,22 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
         vars.push_str(&format!("{k}:{v};"));
     }
 
-    let mermaid_script = match mermaid_js {
-        Some(js) => format!("<script>{js}</script>"),
-        None => "<script src=\"https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.min.js\"></script>"
-            .to_string(),
-    };
-
     let title = html_escape(&opts.title);
     let scheme = if theme.dark { "dark" } else { "light" };
     let toc = toc_html(&rendered.outline);
+    let dark = if theme.dark { "1" } else { "0" };
 
-    format!(
-        r#"<!doctype html>
-<html lang="zh-CN" data-scheme="{scheme}">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{title}</title>
-<style>
-:root {{{vars}}}
-{EXPORT_CSS}
-{md_css}
-</style>
-</head>
-<body>
-<article class="md-body">
-{body}
-</article>
-{toc}
-{mermaid_script}
-<script>
-(function () {{
-  var toc = document.getElementById("toc");
-  var btn = document.getElementById("tocbtn");
-  if (!toc || !btn) return;
-  // Open by default where there is room for the fixed panel; toggle after.
-  if (window.innerWidth < 1080) toc.classList.add("hidden");
-  btn.onclick = function () {{ toc.classList.toggle("hidden"); }};
-}})();
-</script>
+    // Library tag + render bootstrap, only for documents that actually have
+    // mermaid blocks (`<pre><code class="language-mermaid">`); without any,
+    // the export carries no mermaid markup at all.
+    let mermaid_section = if rendered.html.contains("language-mermaid") {
+        let lib = match mermaid_js {
+            Some(js) => format!("<script>{js}</script>"),
+            None => "<script src=\"https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.min.js\"></script>"
+                .to_string(),
+        };
+        format!(
+            r#"{lib}
 <script>
 (function () {{
   function render() {{
@@ -81,7 +60,43 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", render);
   else render();
 }})();
+</script>"#,
+            lib = lib,
+            dark = dark,
+        )
+    } else {
+        String::new()
+    };
+
+    format!(
+        r#"<!doctype html>
+<html lang="zh-CN" data-scheme="{scheme}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<style>
+:root {{{vars}}}
+{EXPORT_CSS}
+{md_css}
+</style>
+</head>
+<body>
+<article class="md-body">
+{body}
+</article>
+{toc}
+<script>
+(function () {{
+  var toc = document.getElementById("toc");
+  var btn = document.getElementById("tocbtn");
+  if (!toc || !btn) return;
+  // Open by default where there is room for the fixed panel; toggle after.
+  if (window.innerWidth < 1080) toc.classList.add("hidden");
+  btn.onclick = function () {{ toc.classList.toggle("hidden"); }};
+}})();
 </script>
+{mermaid_section}
 </body>
 </html>
 "#,
@@ -91,8 +106,7 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
         md_css = crate::core::style::MD_CONTENT_CSS,
         body = rendered.html,
         toc = toc,
-        mermaid_script = mermaid_script,
-        dark = if theme.dark { "1" } else { "0" },
+        mermaid_section = mermaid_section,
         scheme = scheme,
     )
 }
@@ -204,6 +218,33 @@ mod tests {
         // Shared markdown content styles ride along with the export shell.
         assert!(html.contains(".md-body h1"), "shared content styles embedded");
         assert!(html.contains(".md-frontmatter"), "frontmatter card styles embedded");
+    }
+
+    #[test]
+    fn export_without_mermaid_blocks_skips_mermaid_markup() {
+        // The ~5 MB bundle must not ride along with mermaid-free documents,
+        // even when the caller offered the inline JS.
+        let html = export_html(
+            "# Hello\n\n正文\n",
+            Some("window.mermaid = {};"),
+            &ExportOptions { theme_id: "light".into(), title: "t".into() },
+        );
+        // No mermaid lib, no CDN tag, no render bootstrap (the shared content
+        // CSS may still mention `.mermaid-block`; that rides along anyway).
+        assert!(!html.contains("cdn.jsdelivr.net"), "{}", html);
+        assert!(!html.contains("window.mermaid"), "{}", html);
+        assert!(!html.contains("themeDark"), "{}", html);
+    }
+
+    #[test]
+    fn export_with_mermaid_blocks_inlines_supplied_js() {
+        let html = export_html(
+            "```mermaid\ngraph TD; A-->B;\n```",
+            Some("window.mermaid = {};"),
+            &ExportOptions { theme_id: "light".into(), title: "t".into() },
+        );
+        assert!(html.contains("<script>window.mermaid = {};</script>"), "{}", html);
+        assert!(!html.contains("cdn.jsdelivr.net"), "{}", html);
     }
 
     #[test]
