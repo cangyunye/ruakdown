@@ -19,6 +19,18 @@ Release 说明由 `.github/workflows/release.yml` 自动从本文件对应版本
 
 ---
 
+## [0.13.1] - 2026-10-24
+
+相比 v0.13.0:修复导出 HTML 体积——文档不含 mermaid 图时不再把 5.3 MB 的 mermaid.min.js 写进导出文件,无图文档导出体积从 ~5.3 MB 降至 ~14 KB。
+
+### 修复
+- **导出 HTML 无 mermaid 图时不再内联 mermaid 库**:导出的离线页面此前无条件携带 5.3 MB 的 `mermaid.min.js`(或 CDN 标签)连同渲染引导脚本,即使文档里一个 mermaid 图都没有,导出体积 ~99% 是这个库。现在以渲染产物中是否确实存在 mermaid 代码块(`language-mermaid` 类名)为判据:无图文档不输出库、CDN 标签与渲染脚本,导出文件从 ~5.3 MB 降至 ~14 KB;含 mermaid 图的文档行为不变(传入即内联,否则 CDN fallback),「导出 HTML」的 `inline_mermaid` 参数通路原样保留。
+
+### 测试
+- Rust 单测 95 项(+2:无 mermaid 块的导出不携带库 / CDN / 渲染脚本标记,即便调用方传入内联 JS;有 mermaid 块时传入的 JS 正确内联且不再出现 CDN 标签)。
+
+---
+
 ## [0.13.0] - 2026-10-23
 
 相比 v0.12.0:输入与检索效率两线并进——富文本粘贴自动转 Markdown 源码、Frontmatter references 参考链接化,导出 HTML 自带侧挂目录,新增最近打开文件;并修复分屏斜杠面板闪退与源码模式大纲定位。
