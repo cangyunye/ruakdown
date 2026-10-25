@@ -53,10 +53,12 @@ fn is_markdown_path(path: &std::path::Path) -> bool {
 
 /// Strip a `file://` prefix and percent-decode the remainder.
 fn strip_file_scheme(link: &str) -> String {
-    let stripped = if link.len() >= 7 && link[..7].eq_ignore_ascii_case("file://") {
-        &link[7..]
-    } else {
-        link
+    // `get` instead of byte slicing: a CJK link like "./子目录/a.md" has its
+    // 7th byte inside a multi-byte char, and `link[..7]` would panic.
+    // A non-boundary index can never be an ASCII "file://" prefix anyway.
+    let stripped = match link.get(..7) {
+        Some(prefix) if prefix.eq_ignore_ascii_case("file://") => &link[7..],
+        _ => link,
     };
     percent_encoding::percent_decode_str(stripped)
         .decode_utf8_lossy()
@@ -251,5 +253,29 @@ mod tests {
         let r = resolve(&doc, "../../../outside.md", Some(&root));
         assert!(!r.in_root);
         assert!(r.path.contains("outside.md"));
+    }
+
+    /// Regression: a relative CJK link whose 7th byte falls inside a
+    /// multi-byte char ("./子目录/…" → byte 7 is inside 目) used to panic in
+    /// strip_file_scheme's byte slicing. Windows-crash found by E2E 2026-10-25.
+    #[test]
+    fn cjk_link_at_file_scheme_length_does_not_panic() {
+        let root = temp_dir("cjk");
+        let doc = root.join("a.md");
+        let target = root.join("子目录/嵌套文档.md");
+        write(&doc);
+        write(&target);
+        let r = resolve(&doc, "./子目录/嵌套文档.md", Some(&root));
+        assert_eq!(norm(&r.path), norm(target.to_string_lossy().as_ref()));
+        assert!(r.exists);
+        assert!(r.is_markdown);
+        // file:// URLs around CJK must still strip and decode.
+        let r2 = resolve(
+            &doc,
+            &format!("file://{}", target.to_string_lossy()),
+            Some(&root),
+        );
+        assert_eq!(norm(&r2.path), norm(target.to_string_lossy().as_ref()));
+        assert!(r2.exists);
     }
 }
