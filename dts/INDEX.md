@@ -1,6 +1,12 @@
 # dts 问题档案索引
 
-共 14 条 · 未解决 0 · 已解决 14 · 更新于 2026-10-31T21:16:54+08:00
+共 15 条 · 未解决 0 · 已解决 15 · 更新于 2026-10-31T23:32:44+08:00
+
+## infra-dev
+
+| id | 日期 | 摘要 | 状态 |
+|----|------|------|------|
+| [infra-dev_port-1420-in-use](infra-dev_port-1420-in-use/dts.md) | 2026-10-31 | pnpm tauri dev 启动失败：Vite 报 Port 1420 is already in use；beforeDevCommand 退出。 | resolved |
 
 ## fix-theme-wudang
 
