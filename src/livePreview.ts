@@ -178,13 +178,20 @@ export function buildLiveDecorations(
   const widgets: { from: number; to: number; deco: Decoration }[] = [];
   const lineClasses = new Map<number, string[]>();
 
+  // CM6 forbids plugin replaces that cross a line break, so leave any such
+  // span as raw Markdown instead of throwing at render time.
+  const crossesLine = (from: number, to: number) =>
+    state.doc.lineAt(from).to < to;
+
   const widget = (from: number, to: number, w: WidgetType) => {
     if (from >= to || opts.composing) return;
+    if (crossesLine(from, to)) return;
     widgets.push({ from, to, deco: Decoration.replace({ widget: w }) });
   };
 
   const hide = (from: number, to: number) => {
     if (from >= to || opts.composing) return;
+    if (crossesLine(from, to)) return;
     hides.push({ from, to });
   };
   const mark = (from: number, to: number, cls: string) => {
@@ -318,9 +325,6 @@ export function buildLiveDecorations(
         }
         case "Image": {
           if (!activeHere) {
-            // A replace decoration may not cross a line break; a multi-line
-            // image (`![a\nb](x.png)`) stays as raw Markdown.
-            if (state.doc.lineAt(n.from).to < n.to) return false;
             const marks = n.getChildren("LinkMark");
             const alt =
               marks.length >= 2

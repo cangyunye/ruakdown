@@ -119,6 +119,16 @@ describe("live decorations", () => {
     expect(ranges).toContainEqual([14, 21]);
   });
 
+  it("leaves multi-line link labels and titles as raw Markdown", () => {
+    for (const doc of ['[a](u "multi\nline title")\n', "[a][ref\nx]\n"]) {
+      const state = stateFor(doc);
+      for (const [from, to] of hiddenRanges(doc)) {
+        // A plugin replace may not span a newline.
+        expect(state.doc.lineAt(from).to).toBeGreaterThanOrEqual(to);
+      }
+    }
+  });
+
   it("hides the marker of a task item and keeps the checkbox", () => {
     const ranges = hiddenRanges("- [ ] todo\n");
     expect(ranges).toContainEqual([0, 2]);
@@ -263,10 +273,15 @@ describe("block widgets", () => {
     view.destroy();
     parent.remove();
 
-    // A replace decoration may not cross a line break; multi-line image
-    // syntax must not make the live view throw at render time. Run the
+    // A replace decoration may not cross a line break; multi-line image or
+    // link syntax must not make the live view throw at render time. Run the
     // measure callback synchronously so the render-time check actually fires.
-    for (const multiLine of ["![a\nb](x.png)\n", "![alt](\n./x.png)\n"]) {
+    for (const multiLine of [
+      "![a\nb](x.png)\n",
+      "![alt](\n./x.png)\n",
+      '[a](u "multi\nline title")\n',
+      "[a][ref\nx]\n",
+    ]) {
       const holder = document.createElement("div");
       document.body.append(holder);
       const raf = vi

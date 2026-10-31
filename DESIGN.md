@@ -264,7 +264,7 @@ v0.3.2——快捷键兜底与全屏(2026-09-15 已完成):搜索/专注模式�
 - **多行构造**:replace decoration 不得跨行(否则抛 `Decorations that replace line breaks may not be specified via plugins`)。跨行图片(如 `![a\nb](x.png)`、`![alt](\n./x.png)`)直接放弃替换,保留原始 Markdown。
 - **IME**:`view.composing` 期间不生成任何 replace/widget,避免打断中文组词;合成结束后随下一次更新恢复。**P1 尚未做中文输入法人工验证**,这是当前已知风险。
 - **大纲**:实时视图大纲由 `outlineFromMarkdown` 从编辑缓冲解析(300ms 防抖),点击按渲染器同款 slug 规则定位到源码行。
-- **启动模式**:`config.startupMode`(`read` / `live` / `split` / `edit`,默认 `read`)只决定启动时自动恢复的那篇文档用哪个视图;手动打开文件仍进入阅读。
+- **启动模式**:`config.startupMode`(`read` / `live` / `split` / `edit`,默认 `read`)只决定启动时自动打开的那篇文档用哪个视图;手动打开文件仍进入阅读。
 
 ### 测试
 
