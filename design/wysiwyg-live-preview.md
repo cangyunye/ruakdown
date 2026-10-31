@@ -107,7 +107,7 @@ type Mode = "read" | "live" | "split" | "edit";
 | `HorizontalRule` | 隐藏整行文本 + `rk-hr-line` 行装饰画上边框。**不能用 block widget**：CM6 禁止 ViewPlugin 提供 block 装饰，渲染时会抛 `Block decorations may not be specified via plugins` |
 | `FencedCode` | P1 只加背景/圆角样式，围栏仍可见；P2 做点击进入源码的高亮 widget |
 | `Table` | P1 保持源码 + 等宽对齐美化；P3 单独评估网格编辑 |
-| Frontmatter | lezer 不识别，按行扫描：隐藏首尾 `---` 并折叠行高，内容行绘制卡片背景，键名弱化、值正常着色；光标进入时显示原文 |
+| Frontmatter | lezer 不识别，按行扫描：隐藏首尾 `---` 并折叠行高；内容行绘制卡片背景，键名/值用 inline-block 两列对齐；`name`/`author`/`version` 加粗、`description` 斜体弱化、`keywords`/`tags`/`categories` 彩色 chip、空 `references` 留空；光标进入时显示原文 |
 
 - 论道武当这类「浅色主题 + 深色代码面」必须在主题 JSON 里覆盖 `--syn-*`，否则浅色语法调色板会在深色代码块上变成黑底黑字。
 

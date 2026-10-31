@@ -385,9 +385,49 @@ export function buildLiveDecorations(
       const m = /^(\s*)([A-Za-z0-9_-]+)(\s*:)(.*)$/.exec(l.text);
       if (!m) continue;
       const keyFrom = l.from + m[1].length;
-      const keyTo = keyFrom + m[2].length + m[3].length;
-      mark(keyFrom, keyTo, "rk-fm-key");
-      if (m[4].trim()) mark(keyTo, l.to, "rk-fm-val");
+      const key = m[2].toLowerCase();
+      const valueStart = keyFrom + m[2].length + m[3].length;
+      mark(keyFrom, keyFrom + m[2].length, "rk-fm-key");
+      // The reading card hides the colon; keep the column width but drop it.
+      mark(keyFrom + m[2].length, valueStart, "rk-fm-colon");
+      const raw = m[4];
+      if (key === "keywords" || key === "tags" || key === "categories") {
+        const items = [...raw.matchAll(/[^,，、\[\]]+/g)]
+          .map((hit) => {
+            const text = hit[0];
+            const lead = text.length - text.trimStart().length;
+            const from = valueStart + (hit.index ?? 0) + lead;
+            return { from, to: from + text.trim().length };
+          })
+          .filter((item) => item.to > item.from);
+        if (items.length === 0) {
+          hide(valueStart, l.to);
+        } else {
+          // Hide everything between the chips (spaces, brackets, separators)
+          // so only the themed pills remain.
+          let cursor = valueStart;
+          for (const item of items) {
+            if (item.from > cursor) hide(cursor, item.from);
+            cursor = item.to;
+          }
+          if (l.to > cursor) hide(cursor, l.to);
+          items.forEach((item, index) =>
+            mark(item.from, item.to, `fm-chip chip-${index % 8} rk-fm-chip`),
+          );
+        }
+      } else if (raw.trim() && raw.trim() !== "[]") {
+        const valueFrom = valueStart + (raw.length - raw.trimStart().length);
+        if (valueFrom > valueStart) hide(valueStart, valueFrom);
+        let cls = "rk-fm-val";
+        if (key === "description") cls += " rk-fm-desc";
+        if (key === "name" || key === "author" || key === "version") {
+          cls += " rk-fm-strong";
+        }
+        if (key === "title") cls += " rk-fm-title";
+        mark(valueFrom, l.to, cls);
+      } else if (raw.trim() === "[]") {
+        hide(valueStart, l.to);
+      }
     }
   }
 

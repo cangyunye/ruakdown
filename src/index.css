@@ -1914,6 +1914,9 @@ html.split-resizing * {
   padding: 0 12px;
   font-size: 0.92em;
   line-height: 1.6;
+  color: var(--text);
+  font-weight: 400;
+  font-style: normal;
 }
 .rk-live .cm-content .cm-line.rk-fm-first {
   border-top: 1px solid var(--border);
@@ -1930,8 +1933,25 @@ html.split-resizing * {
   line-height: 0;
   padding: 0;
 }
-.rk-fm-key { color: var(--muted); font-weight: 600; }
-.rk-fm-val { color: var(--text); }
+.rk-fm-key {
+  display: inline-block;
+  width: 104px;
+  vertical-align: top;
+  color: var(--muted);
+  font-weight: 600;
+}
+.rk-fm-colon { display: none; }
+.rk-fm-val {
+  display: inline-block;
+  width: calc(100% - 104px);
+  vertical-align: top;
+  color: var(--text);
+  font-weight: 400;
+}
+.rk-fm-desc { color: var(--muted); font-style: italic; }
+.rk-fm-strong { font-weight: 700; }
+.rk-fm-title { font-size: 1.15em; font-weight: 700; color: var(--heading); }
+.rk-fm-chip { display: inline-block; margin-right: 4px; }
 
 .rk-bullet { color: var(--accent); padding-right: 0.35em; }
 .rk-task { vertical-align: middle; margin-right: 0.35em; accent-color: var(--accent); }

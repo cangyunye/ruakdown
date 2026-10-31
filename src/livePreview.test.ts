@@ -439,6 +439,45 @@ describe("block widgets", () => {
     expect(classesAtZero).not.toContain("rk-fm-delim");
   });
 
+  it("hides the colon and italicizes the description value", () => {
+    const doc = "---\ndescription: hello world\n---\n\nbody\n";
+    const classes: string[] = [];
+    build(doc).decorations.between(0, doc.length, (_f, _t, value) => {
+      if (typeof value.spec.class === "string") {
+        classes.push(...value.spec.class.split(" "));
+      }
+    });
+    expect(classes).toContain("rk-fm-colon");
+    expect(classes).toContain("rk-fm-desc");
+  });
+
+  it("renders keyword lists as chips and bolds name values", () => {
+    const doc =
+      "---\nname: Skill 设计\nkeywords: [skill, 技能, 能力包]\nreferences: []\n---\n\nbody\n";
+    const classes: string[] = [];
+    build(doc).decorations.between(0, doc.length, (_f, _t, value) => {
+      if (typeof value.spec.class === "string") {
+        classes.push(...value.spec.class.split(" "));
+      }
+    });
+    expect(classes).toContain("rk-fm-strong");
+    expect(classes).toContain("rk-fm-chip");
+    expect(classes).toContain("chip-0");
+    expect(classes).toContain("chip-1");
+  });
+
+  it("leaves an empty references value blank", () => {
+    const doc = "---\nreferences: []\n---\n\nbody\n";
+    const classes: string[] = [];
+    build(doc).decorations.between(0, doc.length, (_f, _t, value) => {
+      if (typeof value.spec.class === "string") {
+        classes.push(...value.spec.class.split(" "));
+      }
+    });
+    expect(classes).toContain("rk-fm-key");
+    expect(classes).not.toContain("rk-fm-val");
+  });
+
   it("keeps decorating content after a frontmatter block", () => {
     const doc = "---\ntitle: x\n---\n\n# Heading\n\n- `code`\n";
     const classes = markClasses(doc);
