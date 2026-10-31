@@ -1876,10 +1876,14 @@ html.split-resizing * {
 }
 
 /* ── 实时编辑（live preview）──────────────────────────────────────── */
-.rk-h1 { font-size: 1.8em; font-weight: 700; color: var(--heading); padding-top: 0.5em; }
-.rk-h2 { font-size: 1.45em; font-weight: 700; color: var(--heading); padding-top: 0.45em; }
-.rk-h3 { font-size: 1.2em; font-weight: 700; color: var(--heading); padding-top: 0.4em; }
-.rk-h4, .rk-h5, .rk-h6 { font-weight: 700; color: var(--heading); padding-top: 0.35em; }
+/* Line classes are scoped to 4 classes so their padding longhands beat the
+   theme's `.rk-live .cm-line` shorthand (`.ͼX.rk-live .cm-line`, 0,3,0). */
+.rk-live .cm-content .cm-line.rk-h1 { font-size: 1.8em; font-weight: 700; color: var(--heading); padding-top: 0.5em; }
+.rk-live .cm-content .cm-line.rk-h2 { font-size: 1.45em; font-weight: 700; color: var(--heading); padding-top: 0.45em; }
+.rk-live .cm-content .cm-line.rk-h3 { font-size: 1.2em; font-weight: 700; color: var(--heading); padding-top: 0.4em; }
+.rk-live .cm-content .cm-line.rk-h4,
+.rk-live .cm-content .cm-line.rk-h5,
+.rk-live .cm-content .cm-line.rk-h6 { font-weight: 700; color: var(--heading); padding-top: 0.35em; }
 
 .rk-strong { font-weight: 700; }
 .rk-em { font-style: italic; }
@@ -1893,7 +1897,7 @@ html.split-resizing * {
 }
 .rk-link { color: var(--link); text-decoration: underline; }
 
-.rk-quote {
+.rk-live .cm-content .cm-line.rk-quote {
   border-left: 3px solid var(--border);
   padding-left: 12px;
   color: var(--quote-text);
@@ -1903,5 +1907,5 @@ html.split-resizing * {
 
 .rk-bullet { color: var(--accent); padding-right: 0.35em; }
 .rk-task { vertical-align: middle; margin-right: 0.35em; accent-color: var(--accent); }
-.rk-hr-line { border-top: 1px solid var(--border); padding-top: 1.2em; }
+.rk-live .cm-content .cm-line.rk-hr-line { border-top: 1px solid var(--border); padding-top: 1.2em; }
 .rk-image { max-width: 100%; border-radius: 6px; display: block; margin: 0.5em 0; }

@@ -71,6 +71,7 @@ describe("decideFsChange", () => {
 
   it("reloads silently when the editor has no unsaved edits", () => {
     expect(decideFsChange(base({ mode: "edit", dirty: false }))).toBe("reload");
+    expect(decideFsChange(base({ mode: "live" }))).toBe("reload");
     expect(decideFsChange(base({ mode: "read" }))).toBe("reload");
   });
 });

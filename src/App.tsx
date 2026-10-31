@@ -1022,6 +1022,9 @@ export default function App() {
       return true;
     }
     if (s.mode === "edit" || s.mode === "live") {
+      // A lazy-loaded editor that has not mounted yet must keep the anchor
+      // pending, otherwise the retry would be cleared without jumping.
+      if (!editorRef.current) return false;
       const line = headingLineById(editTextRef.current).get(id);
       if (line == null) return false;
       editorRef.current?.gotoLine(line);
