@@ -916,6 +916,8 @@ git commit -m "feat: 实时视图内联装饰与活动块露出"
 
 ### Task 6: 块级 widget——任务框、列表圆点、分隔线、frontmatter
 
+> **实现备注（2026-10-31）**：CM6 禁止 ViewPlugin 提供 `block: true` 的装饰（渲染时抛 `Block decorations may not be specified via plugins`）。实际实现把分隔线改为「隐藏整行文本 + `rk-hr-line` 行装饰画边框」，不再使用 `HrWidget`。下方原始片段仅作历史参考，以代码为准；Task 9 的样式名也随之为 `.rk-hr-line`。
+
 **Files:**
 - Modify: `src/livePreview.ts`
 - Test: `src/livePreview.test.ts`
@@ -1627,7 +1629,7 @@ if (s.mode === "edit" || s.mode === "live") {
 
 .rk-bullet { color: var(--accent); padding-right: 0.35em; }
 .rk-task { vertical-align: middle; margin-right: 0.35em; accent-color: var(--accent); }
-.rk-hr { border: 0; border-top: 1px solid var(--border); margin: 0.6em 0; }
+.rk-hr-line { border-top: 1px solid var(--border); padding-top: 1.2em; }
 .rk-image { max-width: 100%; border-radius: 6px; display: block; margin: 0.5em 0; }
 ```
 

@@ -104,7 +104,7 @@ type Mode = "read" | "live" | "split" | "edit";
 | `Blockquote` | 每行 `Decoration.line` 左边线；`QuoteMark` 隐藏 |
 | `BulletList` | `ListMark` 替换为圆点 widget；有序列表的 `1.` 保留 |
 | `Task` / `TaskMarker` | `[ ]`/`[x]` 替换为复选框 widget，点击 dispatch 改原文 |
-| `HorizontalRule` | `Decoration.replace({ block: true })` 换成 `<hr>` |
+| `HorizontalRule` | 隐藏整行文本 + `rk-hr-line` 行装饰画上边框。**不能用 block widget**：CM6 禁止 ViewPlugin 提供 block 装饰，渲染时会抛 `Block decorations may not be specified via plugins` |
 | `FencedCode` | P1 只加背景/圆角样式，围栏仍可见；P2 做点击进入源码的高亮 widget |
 | `Table` | P1 保持源码 + 等宽对齐美化；P3 单独评估网格编辑 |
 | Frontmatter | lezer 不识别，按行扫描给整块加暗色样式；P2 做折叠卡片 |
