@@ -1,7 +1,11 @@
-import { type EditorView, type WidgetType } from "@codemirror/view";
+import { EditorView, type WidgetType } from "@codemirror/view";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { describe, expect, it, vi } from "vitest";
-import { TaskWidget, buildLiveDecorations } from "./livePreview";
+import {
+  TaskWidget,
+  buildLiveDecorations,
+  livePreview,
+} from "./livePreview";
 import { markdownSupport } from "./markdownSupport";
 
 function stateFor(doc: string, head = doc.length) {
@@ -202,20 +206,42 @@ describe("block widgets", () => {
     expect(widgetNames("- [ ] todo\n", 3)).not.toContain("TaskWidget");
   });
 
-  it("renders a bullet for unordered lists but leaves ordered numbers alone", () => {
+  it("renders a bullet for unordered lists but not for ordered or task items", () => {
     expect(widgetNames("- item\n")).toContain("BulletWidget");
     expect(widgetNames("1. item\n")).not.toContain("BulletWidget");
+    expect(widgetNames("- [ ] todo\n")).not.toContain("BulletWidget");
   });
 
-  it("replaces a horizontal rule with a block widget on whole lines", () => {
+  it("hides the bullet while the list item is active", () => {
+    expect(widgetNames("- item\n", 3)).not.toContain("BulletWidget");
+  });
+
+  it("hides a horizontal rule line and marks it with a rule class", () => {
     const doc = "---\n\npara\n";
-    const hrs: { from: number; to: number; block: unknown }[] = [];
-    build(doc).decorations.between(0, doc.length, (from, to, value) => {
-      if (value.spec.widget?.constructor.name === "HrWidget") {
-        hrs.push({ from, to, block: value.spec.block });
-      }
+    expect(hiddenRanges(doc)).toContainEqual([0, 3]);
+    expect(markClasses(doc)).toContain("rk-hr-line");
+  });
+
+  it("leaves the horizontal rule raw while its line is active", () => {
+    expect(hiddenRanges("---\n\npara\n", 1)).toEqual([]);
+    expect(markClasses("---\n\npara\n", 1)).not.toContain("rk-hr-line");
+  });
+
+  it("mounts in a real editor without a block-decoration crash", () => {
+    const parent = document.createElement("div");
+    document.body.append(parent);
+    const doc = "---\n\npara\n";
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: { anchor: doc.length },
+        extensions: [markdownSupport, livePreview("/ws/a.md")],
+      }),
+      parent,
     });
-    expect(hrs).toEqual([{ from: 0, to: 3, block: true }]);
+    expect(view.dom.querySelector(".rk-hr-line")).not.toBeNull();
+    view.destroy();
+    parent.remove();
   });
 
   it("emits no widgets while composing", () => {
@@ -258,6 +284,13 @@ describe("block widgets", () => {
     ).toBe(false);
   });
 
+  it("pins the checkbox span to the task marker range", () => {
+    const task = widgetSpans("- [ ] todo\n").find(
+      (s) => s.widget instanceof TaskWidget,
+    );
+    expect([task?.from, task?.to]).toEqual([2, 5]);
+  });
+
   it("toggles the checkbox through the document", () => {
     const task = widgetSpans("- [ ] todo\n").find(
       (s) => s.widget instanceof TaskWidget,
@@ -268,11 +301,13 @@ describe("block widgets", () => {
       requestMeasure: vi.fn(),
     } as unknown as EditorView;
     const el = task!.widget.toDOM(view);
+    expect(el.tabIndex).toBe(0);
+    expect(el.getAttribute("aria-label")).toBe("切换任务完成");
     el.dispatchEvent(
-      new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
     );
     expect(view.dispatch).toHaveBeenCalledWith({
-      changes: { from: task!.from, to: task!.to, insert: "[x]" },
+      changes: { from: 2, to: 5, insert: "[x]" },
     });
   });
 
@@ -280,15 +315,34 @@ describe("block widgets", () => {
     const doc = "---\ntitle: x\n---\n\nbody\n";
     const fmEnd = "---\ntitle: x\n---".length;
     const classes: string[] = [];
-    const inside: [number, number][] = [];
+    const inside: string[] = [];
     build(doc).decorations.between(0, doc.length, (from, to, value) => {
       if (typeof value.spec.class === "string") classes.push(value.spec.class);
-      if (to <= fmEnd && (value.spec.widget || value.spec.class == null)) {
-        inside.push([from, to]);
+      if (to <= fmEnd && value.spec.class !== "rk-frontmatter") {
+        inside.push(`${from}-${to}:${value.spec.widget ? "widget" : "replace"}`);
       }
     });
     expect(classes).toContain("rk-frontmatter");
     expect(inside).toEqual([]);
+  });
+
+  it("clamps frontmatter line classes to the visible range", () => {
+    const doc = "---\ntitle: x\n---\n\nbody\n";
+    const from = doc.indexOf("body");
+    const state = stateFor(doc);
+    const { decorations } = buildLiveDecorations(state, {
+      from,
+      to: doc.length,
+      composing: false,
+      docPath: "/ws/a.md",
+    });
+    const classesAtZero: string[] = [];
+    decorations.between(0, from, (_f, _t, value) => {
+      if (typeof value.spec.class === "string") {
+        classesAtZero.push(value.spec.class);
+      }
+    });
+    expect(classesAtZero).not.toContain("rk-frontmatter");
   });
 
   it("stops scanning for a frontmatter delimiter after 200 lines", () => {

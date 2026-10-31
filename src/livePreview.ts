@@ -78,7 +78,9 @@ export class TaskWidget extends WidgetType {
     box.type = "checkbox";
     box.className = "rk-task";
     box.checked = this.checked;
-    box.addEventListener("mousedown", (e) => {
+    box.tabIndex = 0;
+    box.setAttribute("aria-label", "切换任务完成");
+    box.addEventListener("click", (e) => {
       e.preventDefault();
       view.dispatch({
         changes: {
@@ -89,27 +91,6 @@ export class TaskWidget extends WidgetType {
       });
     });
     return box;
-  }
-}
-
-class HrWidget extends WidgetType {
-  constructor(readonly pos: number) {
-    super();
-  }
-  eq(other: HrWidget) {
-    return other.pos === this.pos;
-  }
-  get estimatedHeight() {
-    return 20;
-  }
-  toDOM(view: EditorView) {
-    const hr = document.createElement("hr");
-    hr.className = "rk-hr";
-    hr.addEventListener("mousedown", (e) => {
-      e.preventDefault();
-      view.dispatch({ selection: { anchor: this.pos } });
-    });
-    return hr;
   }
 }
 
@@ -157,9 +138,9 @@ export function buildLiveDecorations(
   const widgets: { from: number; to: number; deco: Decoration }[] = [];
   const lineClasses = new Map<number, string[]>();
 
-  const widget = (from: number, to: number, w: WidgetType, block = false) => {
+  const widget = (from: number, to: number, w: WidgetType) => {
     if (from >= to || opts.composing) return;
-    widgets.push({ from, to, deco: Decoration.replace({ widget: w, block }) });
+    widgets.push({ from, to, deco: Decoration.replace({ widget: w }) });
   };
 
   const hide = (from: number, to: number) => {
@@ -272,7 +253,11 @@ export function buildLiveDecorations(
           lines(n.from, n.to, "rk-code");
           return false;
         case "ListMark": {
-          if (!activeHere && n.parent?.parent?.name === "BulletList") {
+          if (
+            !activeHere &&
+            n.parent?.parent?.name === "BulletList" &&
+            !n.parent?.getChild("Task")
+          ) {
             widget(n.from, n.to, new BulletWidget());
           }
           return false;
@@ -290,7 +275,9 @@ export function buildLiveDecorations(
         case "HorizontalRule": {
           if (!activeHere && n.parent?.name === "Document") {
             const l = state.doc.lineAt(n.from);
-            widget(l.from, l.to, new HrWidget(l.from), true);
+            // CM forbids block decorations from ViewPlugins; draw the rule as a line border instead.
+            hide(l.from, l.to);
+            line(l.from, "rk-hr-line");
           }
           return false;
         }
@@ -399,7 +386,7 @@ function frontmatterLines(state: EditorState): Range | null {
   // shortcut: frontmatter over 200 lines is not dimmed; raise the cap if real docs need it
   const last = Math.min(doc.lines, 200);
   for (let n = 2; n <= last; n++) {
-    const t = doc.line(n).text.trim();
+    const t = doc.line(n).text.trimEnd();
     if (t === "---" || t === "...") return { from: 0, to: doc.line(n).to };
   }
   return null;
