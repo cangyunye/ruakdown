@@ -1,6 +1,7 @@
+import { type EditorView, type WidgetType } from "@codemirror/view";
 import { EditorSelection, EditorState } from "@codemirror/state";
-import { describe, expect, it } from "vitest";
-import { buildLiveDecorations } from "./livePreview";
+import { describe, expect, it, vi } from "vitest";
+import { TaskWidget, buildLiveDecorations } from "./livePreview";
 import { markdownSupport } from "./markdownSupport";
 
 function stateFor(doc: string, head = doc.length) {
@@ -73,7 +74,9 @@ describe("live decorations", () => {
   });
 
   it("does not hide task markers that now render as a widget", () => {
-    expect(covers(hiddenRanges("- [ ] todo\n"), 2)).toBe(false);
+    const ranges = hiddenRanges("- [ ] todo\n");
+    expect(covers(ranges, 2)).toBe(false);
+    expect(covers(ranges, 6)).toBe(false);
   });
 
   it("marks setext headings and hides their underline when inactive", () => {
@@ -181,12 +184,16 @@ describe("live decorations", () => {
   });
 });
 
-function widgetNames(doc: string, head = doc.length): string[] {
-  const names: string[] = [];
-  build(doc, head).decorations.between(0, doc.length, (_from, _to, value) => {
-    if (value.spec.widget) names.push(value.spec.widget.constructor.name);
+function widgetSpans(doc: string, head = doc.length) {
+  const out: { from: number; to: number; widget: WidgetType }[] = [];
+  build(doc, head).decorations.between(0, doc.length, (from, to, value) => {
+    if (value.spec.widget) out.push({ from, to, widget: value.spec.widget });
   });
-  return names;
+  return out;
+}
+
+function widgetNames(doc: string, head = doc.length): string[] {
+  return widgetSpans(doc, head).map((s) => s.widget.constructor.name);
 }
 
 describe("block widgets", () => {
@@ -200,19 +207,92 @@ describe("block widgets", () => {
     expect(widgetNames("1. item\n")).not.toContain("BulletWidget");
   });
 
-  it("renders a horizontal rule as a block widget", () => {
-    expect(widgetNames("---\n\npara\n")).toContain("HrWidget");
+  it("replaces a horizontal rule with a block widget on whole lines", () => {
+    const doc = "---\n\npara\n";
+    const hrs: { from: number; to: number; block: unknown }[] = [];
+    build(doc).decorations.between(0, doc.length, (from, to, value) => {
+      if (value.spec.widget?.constructor.name === "HrWidget") {
+        hrs.push({ from, to, block: value.spec.block });
+      }
+    });
+    expect(hrs).toEqual([{ from: 0, to: 3, block: true }]);
   });
 
-  it("dims a frontmatter block without hiding it", () => {
-    const classes: string[] = [];
-    build("---\ntitle: x\n---\n\nbody\n").decorations.between(
-      0,
-      24,
-      (_f, _t, value) => {
-        if (typeof value.spec.class === "string") classes.push(value.spec.class);
-      },
+  it("emits no widgets while composing", () => {
+    const state = stateFor("- [ ] todo\n");
+    const built = buildLiveDecorations(state, {
+      from: 0,
+      to: state.doc.length,
+      composing: true,
+      docPath: "/ws/a.md",
+    });
+    const widgets: unknown[] = [];
+    const hidden: [number, number][] = [];
+    built.decorations.between(0, state.doc.length, (from, to, value) => {
+      if (value.spec.widget) widgets.push(value.spec.widget);
+      if (value.spec.widget == null && value.spec.class == null) {
+        hidden.push([from, to]);
+      }
+    });
+    expect(widgets).toEqual([]);
+    expect(hidden).toEqual([]);
+    expect(built.atomic.size).toBe(0);
+  });
+
+  it("keeps widgets out of the atomic set", () => {
+    expect(build("- [ ] todo\n").atomic.size).toBe(0);
+    const doc = "# T\n\n- [ ] todo\n";
+    const built = build(doc);
+    const widgets: [number, number][] = [];
+    built.decorations.between(0, doc.length, (from, to, value) => {
+      if (value.spec.widget) widgets.push([from, to]);
+    });
+    const atomic: [number, number][] = [];
+    built.atomic.between(0, doc.length, (from, to) => {
+      atomic.push([from, to]);
+    });
+    expect(widgets.length).toBeGreaterThan(0);
+    expect(atomic.length).toBeGreaterThan(0);
+    expect(
+      widgets.some(([wf, wt]) => atomic.some(([af, at]) => wf < at && wt > af)),
+    ).toBe(false);
+  });
+
+  it("toggles the checkbox through the document", () => {
+    const task = widgetSpans("- [ ] todo\n").find(
+      (s) => s.widget instanceof TaskWidget,
     );
-    expect(classes.some((c) => c.includes("rk-frontmatter"))).toBe(true);
+    expect(task).toBeDefined();
+    const view = {
+      dispatch: vi.fn(),
+      requestMeasure: vi.fn(),
+    } as unknown as EditorView;
+    const el = task!.widget.toDOM(view);
+    el.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+    );
+    expect(view.dispatch).toHaveBeenCalledWith({
+      changes: { from: task!.from, to: task!.to, insert: "[x]" },
+    });
+  });
+
+  it("dims frontmatter but decorates nothing inside it", () => {
+    const doc = "---\ntitle: x\n---\n\nbody\n";
+    const fmEnd = "---\ntitle: x\n---".length;
+    const classes: string[] = [];
+    const inside: [number, number][] = [];
+    build(doc).decorations.between(0, doc.length, (from, to, value) => {
+      if (typeof value.spec.class === "string") classes.push(value.spec.class);
+      if (to <= fmEnd && (value.spec.widget || value.spec.class == null)) {
+        inside.push([from, to]);
+      }
+    });
+    expect(classes).toContain("rk-frontmatter");
+    expect(inside).toEqual([]);
+  });
+
+  it("stops scanning for a frontmatter delimiter after 200 lines", () => {
+    const doc = `---\n${"k: v\n".repeat(210)}---\n\nbody\n`;
+    expect(markClasses(doc)).not.toContain("rk-frontmatter");
   });
 });

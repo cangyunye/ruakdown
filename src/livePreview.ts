@@ -58,7 +58,7 @@ class BulletWidget extends WidgetType {
   }
 }
 
-class TaskWidget extends WidgetType {
+export class TaskWidget extends WidgetType {
   constructor(
     readonly checked: boolean,
     readonly from: number,
@@ -301,11 +301,7 @@ export function buildLiveDecorations(
   });
 
   if (fm && !intersects(fm, active)) {
-    for (let p = fm.from; p <= fm.to; ) {
-      const l = state.doc.lineAt(p);
-      line(l.from, "rk-frontmatter");
-      p = l.to + 1;
-    }
+    lines(fm.from, fm.to, "rk-frontmatter");
   }
 
   const ranges = [
@@ -400,7 +396,9 @@ function build(view: EditorView, docPath: string): LiveDecorations {
 function frontmatterLines(state: EditorState): Range | null {
   const doc = state.doc;
   if (doc.lines < 2 || doc.line(1).text.trimEnd() !== "---") return null;
-  for (let n = 2; n <= doc.lines; n++) {
+  // shortcut: frontmatter over 200 lines is not dimmed; raise the cap if real docs need it
+  const last = Math.min(doc.lines, 200);
+  for (let n = 2; n <= last; n++) {
     const t = doc.line(n).text.trim();
     if (t === "---" || t === "...") return { from: 0, to: doc.line(n).to };
   }
