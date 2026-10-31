@@ -53,6 +53,7 @@ import {
   nextMode,
   normalizeRatio,
   normalizeSide,
+  normalizeStartupMode,
   type EditorSide,
   type Mode,
 } from "./split";
@@ -199,6 +200,10 @@ export default function App() {
   const [currentFile, setCurrentFile] = useState<string | null>(null);
   const [doc, setDoc] = useState<DocPayload | null>(null);
   const [mode, setMode] = useState<Mode>("read");
+  const [startupMode, setStartupMode] = useState<Mode>("read");
+  // persist() captures no deps; the ref keeps the latest value visible to it.
+  const startupModeRef = useRef(startupMode);
+  startupModeRef.current = startupMode;
   const [dirty, setDirty] = useState(false);
   const [externalChange, setExternalChange] = useState(false);
   const [themeName, setThemeName] = useState("light");
@@ -387,6 +392,7 @@ export default function App() {
         zen: s.zenCfg,
         split: { editorSide: s.editorSide, ratio: s.splitRatio },
         assetsDir: s.assetsDir,
+        startupMode: startupModeRef.current,
         ...patch,
       })
       .catch(() => {});
@@ -655,7 +661,10 @@ export default function App() {
   }, []);
 
   const openFile = useCallback(
-    async (path: string, opts?: { history?: boolean }) => {
+    async (
+      path: string,
+      opts?: { history?: boolean; revealFolder?: boolean },
+    ): Promise<DocPayload | null> => {
       // The doc we leave behind is what back/forward navigates to.
       const from = stateRef.current.currentFile;
       try {
@@ -684,6 +693,7 @@ export default function App() {
           syncTargetBiRef.current = 0;
           refreshPreview(true);
         }
+        return d;
       } catch (err) {
         setError("打开文件失败: " + String(err));
         // Drop a history entry that points at a file that is now gone, so it
@@ -694,6 +704,7 @@ export default function App() {
           setRecentFiles(next);
           persist({ recentFiles: next });
         }
+        return null;
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
@@ -1019,7 +1030,9 @@ export default function App() {
       void openMarkdownLink(href, {
         currentFile: s.currentFile,
         root: s.root,
-        openFile,
+        openFile: async (path) => {
+          await openFile(path);
+        },
         notify: setInfo,
         jumpAnchor,
         anchorPending: (id) => {
@@ -2106,6 +2119,8 @@ export default function App() {
           setServePort(cfg.servePort);
         }
         if (cfg.autosave != null) setAutosaveOn(cfg.autosave);
+        const startMode = normalizeStartupMode(cfg.startupMode);
+        setStartupMode(startMode);
         if (cfg.recentFiles) {
           setRecentFiles(cfg.recentFiles);
           recentFilesRef.current = cfg.recentFiles;
@@ -2122,8 +2137,16 @@ export default function App() {
         }
         setAssetsDir(cfg.assetsDir ?? null);
         if (cfg.lastFolder) await openFolder(cfg.lastFolder);
-        if (pending) await openFile(pending);
-        else if (cfg.lastFile) await openFile(cfg.lastFile);
+        let opened: DocPayload | null = null;
+        if (pending) {
+          opened = await openFile(pending, { revealFolder: true });
+        } else if (cfg.lastFile) {
+          opened = await openFile(cfg.lastFile);
+        }
+        if (opened && startMode !== "read") {
+          setMode(startMode);
+          if (startMode === "split") refreshPreview(true, "split");
+        }
       } catch (err) {
         console.error("restore session:", err);
       } finally {
@@ -2771,6 +2794,26 @@ export default function App() {
         <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>设置</h2>
+            <label className="setting-row">
+              <span>启动模式</span>
+              <select
+                className="theme-select"
+                value={startupMode}
+                onChange={(e) => {
+                  const v = e.target.value as Mode;
+                  setStartupMode(v);
+                  persist({ startupMode: v });
+                }}
+              >
+                <option value="read">阅读</option>
+                <option value="live">实时</option>
+                <option value="split">分屏</option>
+                <option value="edit">源码</option>
+              </select>
+            </label>
+            <p className="setting-hint">
+              仅影响下次启动时自动打开的那篇文档；启动后在欢迎页手动打开文件仍进入阅读视图。
+            </p>
             <label className="setting-row">
               <span>自动保存(输入暂停 1.5 秒后)</span>
               <input

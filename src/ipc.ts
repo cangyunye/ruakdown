@@ -113,6 +113,8 @@ export interface AppConfig {
   /** Archive folder for pasted resources, relative to the workspace root;
    * null/empty means the frontend default "assets". */
   assetsDir?: string | null;
+  /** View to show when launching with a document; default "read". */
+  startupMode?: "read" | "live" | "split" | "edit" | null;
 }
 
 export interface Theme {

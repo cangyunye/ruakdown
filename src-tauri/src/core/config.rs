@@ -58,6 +58,9 @@ pub struct Config {
     /// Folder (relative to the workspace root) where pasted resources are
     /// archived; the frontend defaults to "assets" when unset.
     pub assets_dir: Option<String>,
+    /// View shown when the app launches with a document: "read" | "live"
+    /// | "split" | "edit"; missing means "read".
+    pub startup_mode: Option<String>,
 }
 
 pub fn load(path: &Path) -> Config {
@@ -73,4 +76,18 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::write(path, json).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn startup_mode_round_trips_and_missing_field_defaults() {
+        let cfg: Config = serde_json::from_str(r#"{"startupMode":"live"}"#).unwrap();
+        assert_eq!(cfg.startup_mode.as_deref(), Some("live"));
+
+        let old: Config = serde_json::from_str("{}").unwrap();
+        assert!(old.startup_mode.is_none());
+    }
 }
