@@ -128,6 +128,8 @@ list() → list_themes 命令 ─── 前端主题选择器(id → 显示名,
 | `--reader-overlay-rgb` | 专注模式遮罩 | **`--bg` 的 `R, G, B` 三元组**(逗号+空格分隔) |
 | `--chip-0…--chip-7` | frontmatter 标签 8 色循环 | 唯一允许"艳"的地方:8 个色相彼此可辨、在底色上可读 |
 
+> 浅色主题若把 `--pre-bg` / `--code-bg` 做成深色面(如论道武当),必须在主题 JSON 里同时给出深色 `--syn-*` 调色板,并把 `--code-text` 设为反白亮色;否则 `data-scheme=light` 的深色 token 会在深色代码面上变成黑底黑字。
+
 ## 五、设计基准
 
 - `dark` 字段决定 `data-scheme`,进而联动语法高亮、Mermaid、窗口标题栏——按真实观感填写,不要为了别的效果乱标。

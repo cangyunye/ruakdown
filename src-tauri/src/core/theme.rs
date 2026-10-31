@@ -169,6 +169,41 @@ mod tests {
             "pre block is an ink block"
         );
         assert!(t.vars["--accent-soft"].starts_with("rgba(17, 17, 17"));
+        // The light syntax palette is unreadable on an ink pre block; this
+        // theme must carry the dark palette explicitly.
+        for var in [
+            "--syn-keyword",
+            "--syn-string",
+            "--syn-comment",
+            "--syn-number",
+            "--syn-const",
+            "--syn-function",
+            "--syn-type",
+            "--syn-variable",
+            "--syn-tag",
+            "--syn-attr",
+        ] {
+            assert!(
+                t.vars.contains_key(var),
+                "wudang needs {var} for its dark code surface"
+            );
+        }
+    }
+
+    /// Any light theme that dyes its code block dark must override the syntax
+    /// palette, or the light-scheme token colors render dark-on-dark.
+    #[test]
+    fn light_themes_with_dark_code_surfaces_override_syntax_palette() {
+        for (id, raw) in BUILTINS {
+            let t: Theme = serde_json::from_str(raw).unwrap();
+            if t.dark || luma(&t.vars["--pre-bg"]) >= 0.2 {
+                continue;
+            }
+            assert!(
+                t.vars.contains_key("--syn-keyword"),
+                "light theme {id} has a dark pre background but no dark syntax palette"
+            );
+        }
     }
 
     /// 赛博朋克 is the neon-on-void theme: near-black indigo ground, electric

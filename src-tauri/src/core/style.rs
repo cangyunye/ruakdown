@@ -74,6 +74,16 @@ mod tests {
         );
     }
 
+    /// Code blocks that dye their surface dark (论道武当) must not inherit the
+    /// body text color; `--text` is ink-black in that theme, while
+    /// `--code-text` is the reversed light color.
+    #[test]
+    fn pre_code_text_uses_code_text_not_body_text() {
+        let rule = css_rule(MD_CONTENT_CSS, ".md-body pre code");
+        assert!(rule.contains("color: var(--code-text)"), "{rule}");
+        assert!(!rule.contains("color: var(--text)"), "{rule}");
+    }
+
     // ---- theme slot contract (THEMES.md 「样式槽位的拓展」) ----
     //
     // The two style engines may consume a `--slot` WITHOUT a fallback only

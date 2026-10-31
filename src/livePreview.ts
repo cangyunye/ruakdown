@@ -233,8 +233,13 @@ export function buildLiveDecorations(
     to: opts.to,
     enter: (ref) => {
       const n = ref.node;
-      // Frontmatter is not a lezer node; never decorate inside it.
-      if (fm && n.from >= fm.from && n.to <= fm.to) return false;
+      // Frontmatter is not a lezer node; skip syntax-tree decoration for any
+      // node that overlaps it (the card styling is added separately below).
+      // The Document root itself must still descend, or every decoration in
+      // the file would be skipped whenever frontmatter exists.
+      if (fm && n.name !== "Document" && intersects({ from: n.from, to: n.to }, fm)) {
+        return false;
+      }
       const activeHere = intersects({ from: n.from, to: n.to }, active);
 
       switch (n.name) {
@@ -357,8 +362,33 @@ export function buildLiveDecorations(
     },
   });
 
-  if (fm && !intersects(fm, active)) {
-    lines(fm.from, fm.to, "rk-frontmatter");
+  if (
+    fm &&
+    !intersects(fm, active) &&
+    intersects(fm, { from: opts.from, to: opts.to })
+  ) {
+    const first = state.doc.lineAt(fm.from);
+    const last = state.doc.lineAt(Math.max(fm.from, fm.to - 1));
+    // Hide the fences and collapse their line boxes; the metadata lines get
+    // a card-like background plus key/value marks (the reading view renders
+    // the same block as a property card).
+    hide(first.from, first.to);
+    hide(last.from, last.to);
+    line(first.from, "rk-fm-delim");
+    line(last.from, "rk-fm-delim");
+    for (let num = first.number + 1; num < last.number; num++) {
+      const l = state.doc.line(num);
+      const classes = ["rk-fm-line"];
+      if (num === first.number + 1) classes.push("rk-fm-first");
+      if (num === last.number - 1) classes.push("rk-fm-last");
+      line(l.from, classes.join(" "));
+      const m = /^(\s*)([A-Za-z0-9_-]+)(\s*:)(.*)$/.exec(l.text);
+      if (!m) continue;
+      const keyFrom = l.from + m[1].length;
+      const keyTo = keyFrom + m[2].length + m[3].length;
+      mark(keyFrom, keyTo, "rk-fm-key");
+      if (m[4].trim()) mark(keyTo, l.to, "rk-fm-val");
+    }
   }
 
   const ranges = [
@@ -504,7 +534,7 @@ function build(view: EditorView, docPath: string): LiveDecorations {
 function frontmatterLines(state: EditorState): Range | null {
   const doc = state.doc;
   if (doc.lines < 2 || doc.line(1).text.trimEnd() !== "---") return null;
-  // shortcut: frontmatter over 200 lines is not dimmed; raise the cap if real docs need it
+  // shortcut: frontmatter over 200 lines is not card-formatted; raise the cap if real docs need it
   const last = Math.min(doc.lines, 200);
   for (let n = 2; n <= last; n++) {
     const t = doc.line(n).text.trimEnd();

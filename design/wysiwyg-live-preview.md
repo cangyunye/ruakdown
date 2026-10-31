@@ -107,7 +107,9 @@ type Mode = "read" | "live" | "split" | "edit";
 | `HorizontalRule` | 隐藏整行文本 + `rk-hr-line` 行装饰画上边框。**不能用 block widget**：CM6 禁止 ViewPlugin 提供 block 装饰，渲染时会抛 `Block decorations may not be specified via plugins` |
 | `FencedCode` | P1 只加背景/圆角样式，围栏仍可见；P2 做点击进入源码的高亮 widget |
 | `Table` | P1 保持源码 + 等宽对齐美化；P3 单独评估网格编辑 |
-| Frontmatter | lezer 不识别，按行扫描给整块加暗色样式；P2 做折叠卡片 |
+| Frontmatter | lezer 不识别，按行扫描：隐藏首尾 `---` 并折叠行高，内容行绘制卡片背景，键名弱化、值正常着色；光标进入时显示原文 |
+
+- 论道武当这类「浅色主题 + 深色代码面」必须在主题 JSON 里覆盖 `--syn-*`，否则浅色语法调色板会在深色代码块上变成黑底黑字。
 
 ### 4.5 图片
 
@@ -169,7 +171,7 @@ get_config → normalizeStartupMode
 - 代码块：失焦时用 Rust 高亮结果做 widget，点击回到源码。
 - 公式：新增 `render_math` IPC，复用 Rust `latex2mathml`。
 - Mermaid：复用 `mermaid.ts` 与现有缓存策略。
-- Frontmatter 折叠卡片、GFM callout 配色。
+- GFM callout 配色。
 - `==高亮==`、`<u>`/`<kbd>` 的自定义 inline parser。
 
 ### P3（表格，单独评估）

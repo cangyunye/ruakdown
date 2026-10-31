@@ -375,22 +375,53 @@ describe("block widgets", () => {
     });
   });
 
-  it("dims frontmatter but decorates nothing inside it", () => {
+  it("renders frontmatter as a card and hides its fences", () => {
     const doc = "---\ntitle: x\n---\n\nbody\n";
-    const fmEnd = "---\ntitle: x\n---".length;
-    const classes: string[] = [];
-    const inside: string[] = [];
-    build(doc).decorations.between(0, doc.length, (from, to, value) => {
-      if (typeof value.spec.class === "string") classes.push(value.spec.class);
-      if (to <= fmEnd && value.spec.class !== "rk-frontmatter") {
-        inside.push(`${from}-${to}:${value.spec.widget ? "widget" : "replace"}`);
-      }
+    const state = stateFor(doc);
+    const { decorations } = buildLiveDecorations(state, {
+      from: 0,
+      to: doc.length,
+      composing: false,
+      docPath: "/ws/a.md",
     });
-    expect(classes).toContain("rk-frontmatter");
-    expect(inside).toEqual([]);
+    const hidden: [number, number][] = [];
+    const classes: string[] = [];
+    decorations.between(0, doc.length, (from, to, value) => {
+      if (value.spec.widget == null && value.spec.class == null) {
+        hidden.push([from, to]);
+      }
+      if (typeof value.spec.class === "string") classes.push(...value.spec.class.split(" "));
+    });
+    expect(hidden).toContainEqual([0, 3]);
+    expect(hidden).toContainEqual([13, 16]);
+    expect(classes).toContain("rk-fm-line");
+    expect(classes).toContain("rk-fm-first");
+    expect(classes).toContain("rk-fm-last");
+    expect(classes).toContain("rk-fm-key");
+    expect(classes).toContain("rk-fm-val");
+    expect(classes).toContain("rk-fm-delim");
   });
 
-  it("clamps frontmatter line classes to the visible range", () => {
+  it("leaves frontmatter raw while the cursor is inside it", () => {
+    const doc = "---\ntitle: x\n---\n\nbody\n";
+    const state = stateFor(doc, 6);
+    const { decorations } = buildLiveDecorations(state, {
+      from: 0,
+      to: doc.length,
+      composing: false,
+      docPath: "/ws/a.md",
+    });
+    const classes: string[] = [];
+    const hidden: [number, number][] = [];
+    decorations.between(0, doc.length, (from, to, value) => {
+      if (typeof value.spec.class === "string") classes.push(...value.spec.class.split(" "));
+      if (value.spec.widget == null && value.spec.class == null) hidden.push([from, to]);
+    });
+    expect(classes).not.toContain("rk-fm-line");
+    expect(hidden).not.toContainEqual([0, 3]);
+  });
+
+  it("clamps frontmatter card classes to the visible range", () => {
     const doc = "---\ntitle: x\n---\n\nbody\n";
     const from = doc.indexOf("body");
     const state = stateFor(doc);
@@ -402,16 +433,22 @@ describe("block widgets", () => {
     });
     const classesAtZero: string[] = [];
     decorations.between(0, from, (_f, _t, value) => {
-      if (typeof value.spec.class === "string") {
-        classesAtZero.push(value.spec.class);
-      }
+      if (typeof value.spec.class === "string") classesAtZero.push(...value.spec.class.split(" "));
     });
-    expect(classesAtZero).not.toContain("rk-frontmatter");
+    expect(classesAtZero).not.toContain("rk-fm-line");
+    expect(classesAtZero).not.toContain("rk-fm-delim");
+  });
+
+  it("keeps decorating content after a frontmatter block", () => {
+    const doc = "---\ntitle: x\n---\n\n# Heading\n\n- `code`\n";
+    const classes = markClasses(doc);
+    expect(classes).toContain("rk-h1");
+    expect(classes).toContain("rk-inline-code");
   });
 
   it("stops scanning for a frontmatter delimiter after 200 lines", () => {
     const doc = `---\n${"k: v\n".repeat(210)}---\n\nbody\n`;
-    expect(markClasses(doc)).not.toContain("rk-frontmatter");
+    expect(markClasses(doc)).not.toContain("rk-fm-line");
   });
 });
 

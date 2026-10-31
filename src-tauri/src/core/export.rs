@@ -23,6 +23,21 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
 
     let title = html_escape(&opts.title);
     let scheme = if theme.dark { "dark" } else { "light" };
+    // Themes whose code surface is dark but whose overall scheme is light
+    // (论道武当) carry their own syntax palette; emit it after the
+    // `data-scheme` block so the more specific `[data-theme]` selector wins.
+    let mut syn = String::new();
+    for (k, v) in &theme.vars {
+        if k.starts_with("--syn-") {
+            syn.push_str(&format!("{k}:{v};"));
+        }
+    }
+    let syn_override = if syn.is_empty() {
+        String::new()
+    } else {
+        format!(":root[data-theme=\"{}\"] {{{syn}}}", opts.theme_id)
+    };
+    let theme_id = html_escape(&opts.theme_id);
     let toc = toc_html(&rendered.outline);
     let dark = if theme.dark { "1" } else { "0" };
 
@@ -70,7 +85,7 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
 
     format!(
         r#"<!doctype html>
-<html lang="zh-CN" data-scheme="{scheme}">
+<html lang="zh-CN" data-scheme="{scheme}" data-theme="{theme_id}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -79,6 +94,7 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
 :root {{{vars}}}
 {EXPORT_CSS}
 {md_css}
+{syn_override}
 </style>
 </head>
 <body>
@@ -108,6 +124,8 @@ pub fn export_html(source: &str, mermaid_js: Option<&str>, opts: &ExportOptions)
         toc = toc,
         mermaid_section = mermaid_section,
         scheme = scheme,
+        theme_id = theme_id,
+        syn_override = syn_override,
     )
 }
 
@@ -261,6 +279,27 @@ mod tests {
         // The alert palette and math layout ride in the shared content CSS.
         assert!(html.contains(".markdown-alert-caution"), "{}", html);
         assert!(html.contains(".math-display"), "{}", html);
+    }
+
+    #[test]
+    fn wudang_export_overrides_syntax_palette_for_dark_code() {
+        let html = export_html(
+            "# T\n\n```rust\nfn main() {}\n```\n",
+            None,
+            &ExportOptions { theme_id: "wudang".into(), title: "t".into() },
+        );
+        assert!(html.contains("data-theme=\"wudang\""), "{}", html);
+        let theme_pos = html
+            .find(":root[data-theme=\"wudang\"]")
+            .expect("theme palette override block");
+        let scheme_pos = html
+            .find(":root[data-scheme=\"light\"]")
+            .expect("scheme palette block");
+        assert!(
+            theme_pos > scheme_pos,
+            "theme override must come after the scheme palette"
+        );
+        assert!(html.contains("--syn-keyword:#ff7b72"), "{}", html);
     }
 }
 
