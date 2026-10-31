@@ -10,6 +10,7 @@ import {
   type AppConfig,
   type BackgroundConfig,
   type DocPayload,
+  type OutlineItem,
   type PreviewMeta,
   type TreeNode,
   type ZenConfig,
@@ -27,7 +28,7 @@ import {
   type DocHistory,
 } from "./docHistory";
 import { blockAtLine, headingOwners, lockAllows, nextSyncTarget, SYNC_LOCK_MS, type SyncLock } from "./scrollSync";
-import { headingLineById } from "./headingLocate";
+import { headingLineById, outlineFromMarkdown } from "./headingLocate";
 import { matchShortcut } from "./shortcuts";
 import {
   clearCallout,
@@ -264,6 +265,7 @@ export default function App() {
   const [editorSide, setEditorSide] = useState<EditorSide>("left");
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [previewMeta, setPreviewMeta] = useState<PreviewMeta | null>(null);
+  const [liveOutline, setLiveOutline] = useState<OutlineItem[]>([]);
   const zenPosRef = useRef(zenPos);
   zenPosRef.current = zenPos;
   const zenCtlRef = useRef<ZenController | null>(null);
@@ -318,6 +320,7 @@ export default function App() {
   const syncLockRef = useRef<SyncLock | null>(null);
   const syncTargetBiRef = useRef(0);
   const previewTimer = useRef<number | null>(null);
+  const liveOutlineTimer = useRef<number | null>(null);
   const previewRevRef = useRef(0);
   // File the current previewMeta was built from: anchor jumps must not use a
   // meta that predates a doc switch (same-named headings would mislead).
@@ -350,6 +353,24 @@ export default function App() {
     assetsDir,
   };
   const editTextRef = useRef("");
+  /** Debounced outline rebuild for the live view, derived from the buffer
+   *  itself — no preview round-trip needed. */
+  const scheduleLiveOutline = useCallback(() => {
+    if (liveOutlineTimer.current != null) {
+      window.clearTimeout(liveOutlineTimer.current);
+    }
+    liveOutlineTimer.current = window.setTimeout(() => {
+      liveOutlineTimer.current = null;
+      setLiveOutline(outlineFromMarkdown(editTextRef.current));
+    }, 300);
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (liveOutlineTimer.current != null) {
+        window.clearTimeout(liveOutlineTimer.current);
+      }
+    };
+  }, []);
   const dirtyRef = useRef(false);
   const autosaveTimer = useRef<number | null>(null);
   // Save bookkeeping: in-flight serialization + dirty-flag arbitration for
@@ -501,9 +522,10 @@ export default function App() {
     (text: string) => {
       markDirty(text);
       refreshPreview(false);
+      if (stateRef.current.mode === "live") scheduleLiveOutline();
       setDocVersion((v) => v + 1);
     },
-    [markDirty, refreshPreview],
+    [markDirty, refreshPreview, scheduleLiveOutline],
   );
 
   const headingOwnerMap = useMemo(
@@ -677,6 +699,9 @@ export default function App() {
           docHistoryRef.current = pushVisit(docHistoryRef.current, from, path);
         }
         editTextRef.current = d.text;
+        if (stateRef.current.mode === "live") {
+          setLiveOutline(outlineFromMarkdown(d.text));
+        }
         dirtyRef.current = false;
         setDirty(false);
         setExternalChange(false);
@@ -841,6 +866,9 @@ export default function App() {
         editTextRef.current,
         stateRef.current.doc?.text ?? "",
       );
+      if (next === "live") {
+        setLiveOutline(outlineFromMarkdown(editTextRef.current));
+      }
       setMode(next);
       if (prev === "read" && next !== "read") {
         // Zen sections only exist inside the reader. Leaving read mode must
@@ -2335,8 +2363,8 @@ export default function App() {
       if (line != null) editorRef.current?.scrollToLine(line);
       return;
     }
-    if (stateRef.current.mode === "edit") {
-      // Outline click in source view: replay the renderer's heading-id
+    if (stateRef.current.mode === "edit" || stateRef.current.mode === "live") {
+      // Outline click in source/live view: replay the renderer's heading-id
       // allocation over the live buffer to find the heading's line.
       const line = headingLineById(editTextRef.current).get(id);
       if (line != null) editorRef.current?.gotoLine(line);
@@ -2350,13 +2378,16 @@ export default function App() {
   }, []);
 
   // The sidebar outline in split view comes from the live preview build so
-  // it stays aligned with the edited buffer.
+  // it stays aligned with the edited buffer; in live view it is scanned from
+  // the buffer directly (see scheduleLiveOutline).
   const currentOutline =
-    mode === "split" && previewMeta
-      ? previewMeta.outline
-      : doc?.chunked
-        ? doc.chunked.outline
-        : (doc?.outline ?? []);
+    mode === "live"
+      ? liveOutline
+      : mode === "split" && previewMeta
+        ? previewMeta.outline
+        : doc?.chunked
+          ? doc.chunked.outline
+          : (doc?.outline ?? []);
 
   // Single editor element shared by the live, split and source views; the
   // `live` prop (not a remount) switches live-preview on and off.

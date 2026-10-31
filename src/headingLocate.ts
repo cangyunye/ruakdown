@@ -1,5 +1,5 @@
 /**
- * Heading id → source line mapping for the source-mode outline jump.
+ * Heading scanning for the live-view outline and the source-mode jump.
  *
  * The renderer (core/markdown.rs) allocates heading ids with a GitHub-style
  * slug + duplicate counter. The editor side has no DOM anchors, so the same
@@ -11,9 +11,19 @@
  * no id or a divergent one; callers treat a miss as "no jump".
  */
 
-/** Heading id → 1-based line number for ATX headings in `doc`. */
-export function headingLineById(doc: string): Map<string, number> {
-  const map = new Map<string, number>();
+import type { OutlineItem } from "./ipc";
+
+export interface ScannedHeading {
+  level: number;
+  text: string;
+  id: string;
+  /** 1-based source line. */
+  line: number;
+}
+
+/** ATX headings in `doc`, in source order, with renderer-compatible ids. */
+export function scanHeadings(doc: string): ScannedHeading[] {
+  const out: ScannedHeading[] = [];
   const seen = new Map<string, number>();
   const lines = doc.split("\n");
   let i = 0;
@@ -38,9 +48,24 @@ export function headingLineById(doc: string): Map<string, number> {
       .replace(/\s+#+\s*$/, "")
       .replace(/[`*]/g, "")
       .trim();
-    map.set(allocateSlug(seen, text), i + 1);
+    out.push({
+      level: m[1].length,
+      text,
+      id: allocateSlug(seen, text),
+      line: i + 1,
+    });
   }
-  return map;
+  return out;
+}
+
+/** Sidebar outline derived from the editor buffer (no line numbers). */
+export function outlineFromMarkdown(doc: string): OutlineItem[] {
+  return scanHeadings(doc).map(({ level, text, id }) => ({ level, text, id }));
+}
+
+/** Heading id → 1-based line number for ATX headings in `doc`. */
+export function headingLineById(doc: string): Map<string, number> {
+  return new Map(scanHeadings(doc).map((h) => [h.id, h.line]));
 }
 
 /** The Rust HeadingSlugger: slugified text, duplicates suffixed -1, -2, … */
