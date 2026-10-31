@@ -25,7 +25,7 @@ const REVEAL_NODES = new Set([
   "Table",
   "HTMLBlock",
   "HorizontalRule",
-  "IndentedCode",
+  "CodeBlock",
 ]);
 
 export interface LiveDecorationsOptions {
@@ -64,10 +64,15 @@ function revealRange(state: EditorState, pos: number): Range {
 }
 
 function activeLines(state: EditorState): Range {
-  const sel = state.selection.main;
-  const a = revealRange(state, sel.from);
-  const b = revealRange(state, sel.to);
-  return { from: Math.min(a.from, b.from), to: Math.max(a.to, b.to) };
+  let from = state.doc.length;
+  let to = 0;
+  for (const sel of state.selection.ranges) {
+    const a = revealRange(state, sel.from);
+    const b = revealRange(state, sel.to);
+    from = Math.min(from, a.from, b.from);
+    to = Math.max(to, a.to, b.to);
+  }
+  return { from, to };
 }
 
 function intersects(a: Range, b: Range): boolean {
@@ -95,6 +100,29 @@ export function buildLiveDecorations(
     if (!list) lineClasses.set(pos, [cls]);
     else if (!list.includes(cls)) list.push(cls);
   };
+  // Line classes for a block, clamped to the visible range so a block that
+  // starts above the viewport does not walk its off-screen lines.
+  const lines = (from: number, to: number, cls: string) => {
+    const end = Math.min(to, opts.to);
+    for (let p = Math.max(from, opts.from); p <= end; ) {
+      const l = state.doc.lineAt(p);
+      line(l.from, cls);
+      p = l.to + 1;
+    }
+  };
+
+  const paired = (
+    marks_: { from: number; to: number }[],
+    activeHere: boolean,
+    cls: string,
+  ) => {
+    if (marks_.length < 2) return;
+    if (!activeHere) {
+      hide(marks_[0].from, marks_[0].to);
+      hide(marks_[marks_.length - 1].from, marks_[marks_.length - 1].to);
+    }
+    mark(marks_[0].to, marks_[marks_.length - 1].from, cls);
+  };
 
   syntaxTree(state).iterate({
     from: opts.from,
@@ -105,8 +133,6 @@ export function buildLiveDecorations(
 
       switch (n.name) {
         case "HeaderMark":
-        case "EmphasisMark":
-        case "StrikethroughMark":
           if (!activeHere) hide(n.from, n.to);
           return false;
         case "QuoteMark":
@@ -123,40 +149,32 @@ export function buildLiveDecorations(
           }
           return false;
         }
-        case "StrongEmphasis": {
-          const em = n.getChildren("EmphasisMark");
-          if (em.length >= 2) {
-            if (!activeHere) {
-              hide(em[0].from, em[0].to);
-              hide(em[em.length - 1].from, em[em.length - 1].to);
-            }
-            mark(em[0].to, em[em.length - 1].from, "rk-strong");
-          }
-          return false;
-        }
-        case "Emphasis": {
-          const em = n.getChildren("EmphasisMark");
-          if (em.length >= 2) {
-            if (!activeHere) {
-              hide(em[0].from, em[0].to);
-              hide(em[em.length - 1].from, em[em.length - 1].to);
-            }
-            mark(em[0].to, em[em.length - 1].from, "rk-em");
-          }
-          return false;
-        }
+        // Inline emphasis-ish nodes descend so nesting (**a *b* c**) is
+        // decorated too; the marker nodes are handled here, not standalone.
+        case "StrongEmphasis":
+        case "Emphasis":
+          paired(
+            n.getChildren("EmphasisMark"),
+            activeHere,
+            n.name === "StrongEmphasis" ? "rk-strong" : "rk-em",
+          );
+          return;
+        case "Strikethrough":
+          paired(n.getChildren("StrikethroughMark"), activeHere, "rk-strike");
+          return;
         case "Link": {
           const lm = n.getChildren("LinkMark");
-          if (lm.length > 0) {
+          if (lm.length >= 2) {
             if (!activeHere) {
               for (const m of lm) hide(m.from, m.to);
               const url = n.getChild("URL");
               if (url) hide(url.from, url.to);
+              const label = n.getChild("LinkLabel");
+              if (label) hide(label.from, label.to);
             }
-            const textTo = lm[1]?.from ?? n.to;
-            mark(lm[0].to, textTo, "rk-link");
+            mark(lm[0].to, lm[1].from, "rk-link");
           }
-          return false;
+          return;
         }
         case "ATXHeading1":
         case "ATXHeading2":
@@ -164,24 +182,19 @@ export function buildLiveDecorations(
         case "ATXHeading4":
         case "ATXHeading5":
         case "ATXHeading6":
+        case "SetextHeading1":
+        case "SetextHeading2":
           line(state.doc.lineAt(n.from).from, `rk-h${n.name.slice(-1)}`);
           return;
-        case "Blockquote": {
-          for (let p = n.from; p <= n.to; ) {
-            const l = state.doc.lineAt(p);
-            line(l.from, "rk-quote");
-            p = l.to + 1;
-          }
+        case "Blockquote":
+          lines(n.from, n.to, "rk-quote");
           return;
-        }
-        case "FencedCode": {
-          for (let p = n.from; p <= n.to; ) {
-            const l = state.doc.lineAt(p);
-            line(l.from, "rk-code");
-            p = l.to + 1;
-          }
+        case "FencedCode":
+          lines(n.from, n.to, "rk-code");
           return false;
-        }
+        case "CodeBlock":
+          lines(n.from, n.to, "rk-code");
+          return false;
         default:
           return;
       }
@@ -225,20 +238,28 @@ export function livePreview(docPath: string): Extension {
     class {
       decorations: DecorationSet;
       atomic: DecorationSet;
+      composing: boolean;
+      tree: ReturnType<typeof syntaxTree>;
 
       constructor(view: EditorView) {
+        this.composing = view.composing;
+        this.tree = syntaxTree(view.state);
         const built = build(view, docPath);
         this.decorations = built.decorations;
         this.atomic = built.atomic;
       }
 
       update(update: ViewUpdate) {
+        const tree = syntaxTree(update.state);
         if (
           update.docChanged ||
           update.selectionSet ||
           update.viewportChanged ||
-          update.focusChanged
+          update.view.composing !== this.composing ||
+          tree !== this.tree
         ) {
+          this.composing = update.view.composing;
+          this.tree = tree;
           const built = build(update.view, docPath);
           this.decorations = built.decorations;
           this.atomic = built.atomic;
