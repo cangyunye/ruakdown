@@ -415,8 +415,9 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Toggling live↔source reconfigures the extension instead of remounting the
-  // editor, so undo history and scroll position survive the switch.
+  // live↔source reconfigures the extension instead of remounting, so undo
+  // history and scroll position survive that switch. Split places the editor
+  // in a different pane subtree, which remounts it and drops the history.
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;

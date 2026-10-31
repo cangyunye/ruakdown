@@ -113,6 +113,19 @@ describe("live decorations", () => {
     expect(covers(ranges, 7)).toBe(true);
   });
 
+  it("hides a link title but keeps the label visible", () => {
+    const ranges = hiddenRanges('[a](https://x "title")\n');
+    expect(covers(ranges, 1)).toBe(false);
+    expect(ranges).toContainEqual([14, 21]);
+  });
+
+  it("hides the marker of a task item and keeps the checkbox", () => {
+    const ranges = hiddenRanges("- [ ] todo\n");
+    expect(ranges).toContainEqual([0, 2]);
+    expect(covers(ranges, 2)).toBe(false);
+    expect(widgetNames("- [ ] todo\n")).toContain("TaskWidget");
+  });
+
   it("reveals the heading on the cursor's line only for a blank line", () => {
     expect(hiddenRanges("# H\n\ntext\n", 4)).toEqual([[0, 1]]);
   });
@@ -249,6 +262,36 @@ describe("block widgets", () => {
     expect(view.dom.querySelector(".rk-hr-line")).not.toBeNull();
     view.destroy();
     parent.remove();
+
+    // A replace decoration may not cross a line break; multi-line image
+    // syntax must not make the live view throw at render time. Run the
+    // measure callback synchronously so the render-time check actually fires.
+    for (const multiLine of ["![a\nb](x.png)\n", "![alt](\n./x.png)\n"]) {
+      const holder = document.createElement("div");
+      document.body.append(holder);
+      const raf = vi
+        .spyOn(window, "requestAnimationFrame")
+        .mockImplementation((cb: FrameRequestCallback) => {
+          cb(0);
+          return 0;
+        });
+      try {
+        expect(() => {
+          const v = new EditorView({
+            state: EditorState.create({
+              doc: multiLine,
+              selection: { anchor: multiLine.length },
+              extensions: [markdownSupport, livePreview("/ws/a.md")],
+            }),
+            parent: holder,
+          });
+          v.destroy();
+        }).not.toThrow();
+      } finally {
+        raf.mockRestore();
+        holder.remove();
+      }
+    }
   });
 
   it("emits no widgets while composing", () => {
@@ -273,7 +316,6 @@ describe("block widgets", () => {
   });
 
   it("keeps widgets out of the atomic set", () => {
-    expect(build("- [ ] todo\n").atomic.size).toBe(0);
     const doc = "# T\n\n- [ ] todo\n";
     const built = build(doc);
     const widgets: [number, number][] = [];
@@ -411,6 +453,11 @@ describe("image widget", () => {
   it("keeps reference-style images as raw Markdown", () => {
     expect(widgetNames("![alt][ref]\n")).not.toContain("ImageWidget");
     expect(widgetNames("![alt]\n")).not.toContain("ImageWidget");
+  });
+
+  it("keeps a multi-line image as raw Markdown", () => {
+    expect(widgetNames("![a\nb](x.png)\n")).not.toContain("ImageWidget");
+    expect(widgetNames("![alt](\n./x.png)\n")).not.toContain("ImageWidget");
   });
 
   it("keeps image widgets out of the atomic set", () => {

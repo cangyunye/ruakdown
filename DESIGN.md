@@ -4,7 +4,7 @@
 > 1. 主适配目标调整为 **Windows 优先**;macOS 后续跟进,Android 降级为附录(未来扩展)。
 > 2. 产品定位调整为**阅读优先**:MVP 先做高质量渲染阅读(文件树/大纲/Mermaid/主题),编辑随后叠加。
 > 3. 渲染管线改为 **Rust 侧 pulldown-cmark 单一事实源**(阅读视图、导出 HTML、内嵌 Serve 共用同一条管线),前端不再引入 marked/micromark,体积最小化。
-> 4. 编辑内核改为**手搓分阶段**:M2 用 CodeMirror 6 做源码模式;WYSIWYG 后置到 M5 评估(基于 ProseMirror core 手搓,参考 Milkdown 的 schema/序列化设计,不引入 Milkdown 本体)。原则:**尽量减少框架依赖和编译后体积**。
+> 4. 编辑内核改为**手搓分阶段**:M2 用 CodeMirror 6 做源码模式;WYSIWYG 曾后置到 M5 评估(基于 ProseMirror core 手搓,参考 Milkdown 的 schema/序列化设计,不引入 Milkdown 本体)。**P1(2026-10-31)已确定不走 ProseMirror 路线**,改为在 CM6 装饰层上做实时视图(见 §十五);原则不变:**尽量减少框架依赖和编译后体积**,不新增依赖。
 > 5. 依赖版本全面更新,补齐 Windows 专项(编码兼容、CRLF/LF、单实例、文件关联、安装器)。
 
 ## 一、整体架构
@@ -50,7 +50,7 @@
 ## 三、编辑方案(分阶段)
 
 - **M2 源码模式**:CodeMirror 6(按需引入:markdown 语言包 + 基础 setup,模块化可控)。阅读/源码双模式切换(类 Typora 的同一文档双视图)。~~不做左右分屏~~ → **v0.4.0 已加入第三种视图「分屏」**(源码 + 实时预览并排,见 §十四)。
-- **M5 WYSIWYG(评估后置)**:手搓 Typora 级 WYSIWYG(表格、任务列表、粘贴、序列化往返)工作量极大,不作为 MVP 内容。届时基于 ProseMirror core(model/view/state/transform/markdown,合计约 150KB gzip,纯库非框架)自建,参考 Milkdown 的 schema 与 markdown 序列化设计;若评估后发现体积/工作量超出预算,源码模式 + 阅读模式已是可用的最终形态。
+- **WYSIWYG 决策修订(P1,2026-10-31)**:不再等待 ProseMirror。实时视图直接在现有 CodeMirror 6 上叠一层装饰(ViewPlugin + Decoration),Markdown 仍是唯一事实源,不引入 ProseMirror / Milkdown / 任何新依赖(实现见 §十五)。表格、公式、Mermaid、代码高亮的行内编辑留给 P2/P3。
 
 保存策略:自动保存(防抖)+ 手动保存 + 崩溃备份;**逐文件保持原编码与换行符**(见 §五)。
 
@@ -139,7 +139,7 @@ encoding_rs = "0.8"
 dunce = "1"
 ```
 
-前端(`package.json`):`react` / `react-dom`、`typescript`、`vite`、`@tauri-apps/cli`、`@tauri-apps/api`、`tailwindcss`、`codemirror 6`(@codemirror/* 按需)、`mermaid`(动态 import)。**不引入**:shadcn/radix、marked/micromark、Milkdown、ProseMirror(M5 前不装)。
+前端(`package.json`):`react` / `react-dom`、`typescript`、`vite`、`@tauri-apps/cli`、`@tauri-apps/api`、`tailwindcss`、`codemirror 6`(@codemirror/* 按需)、`mermaid`(动态 import)。**不引入**:shadcn/radix、marked/micromark、Milkdown、ProseMirror(实时视图已确定改用 CM6 装饰层,见 §十五)。
 
 体积策略:阅读模式仅 React(~45KB gzip)+ 应用代码;mermaid 按需 chunk;CodeMirror 仅编辑模式动态加载;Rust 渲染省去前端解析器。
 
@@ -163,7 +163,7 @@ dunce = "1"
 3. **M2 编辑**:CodeMirror 6 源码模式,双模式切换;保存/自动保存/崩溃备份;编码与换行符保持;外部修改重载提示。
 4. **M3 输出**:导出 HTML;axum 内嵌 Serve;原生菜单栏。
 5. **M4 Windows 打磨**:单实例、文件关联、NSIS 安装包、图标、设置页。
-6. **M5 后置评估**:WYSIWYG(ProseMirror core 手搓)、macOS 适配、全文搜索、PDF 打印、大文档优化。
+6. **M5 后置评估**:~~WYSIWYG(ProseMirror core 手搓)~~ → P1 改为 CM6 装饰层实时视图(§十五,2026-10-31);其余:macOS 适配、全文搜索、PDF 打印、大文档优化。
 
 ## 附录:Android 未来适配要点(Tauri Mobile,当前不做)
 
@@ -189,7 +189,7 @@ dunce = "1"
 - Mermaid 渲染安全级别 `strict`;原始 HTML 透传 pulldown-cmark,信任本地文档(前端未暴露全局 IPC)。
 - **所有原生文件对话框命令(pick_folder/pick_file/pick_export_path)必须是 async + spawn_blocking 等待回调**:Tauri 同步命令在主线程执行,而对话框回调也要主线程分发,同步等待会在 macOS 上直接死锁(Windows 下 IPC 回调在不同线程,故此问题仅在 mac 复现,2026-09-14 修复)。load_tree/save_file/export_html 同理移入 spawn_blocking,避免大目录扫描/大文件写入阻塞 UI。
 
-M5(未开始):WYSIWYG(ProseMirror core 手搓)、macOS 适配、文件内查找/替换、PDF 打印、图片 base64 内嵌导出、主题导入导出。
+M5(未开始):~~WYSIWYG(ProseMirror core 手搓)~~ → P1 已改用 CM6 装饰层实现实时视图(§十五,2026-10-31);其余:macOS 适配、文件内查找/替换、PDF 打印、图片 base64 内嵌导出、主题导入导出。
 
 M5 部分提前落地——目录内搜索(2026-09-14 已完成):Rust `core/search.rs` 递归搜索已打开目录下全部 `.md`/`.markdown`(复用 `collect_markdown_files` 的遍历规则与 `read_text` 的编码检测,GBK/UTF-16 可直接匹配),内容按行匹配 + 文件名匹配(文件名命中排前);上限保护(单文件 50 条/总量 2000 条/跳过 >16MB);前端 `SearchModal` 中央模态框,输入防抖 500ms、关键词 ≥2 字符才触发、同一时刻只允许一个目录扫描(输入期间的触发合并为最新一次,结束后补跑)、渲染上限 300 条(状态行仍显示真实计数),结果按文件分组展示命中行片段(关键词 `<mark>` 高亮),Ctrl+Shift+F(视图菜单「目录内搜索」)或标题栏「搜索」按钮打开,↑/↓/Enter/Esc 键盘导航;点击命中项打开文件并滚动定位到首个匹配处(阅读模式 best-effort,分块大文档/源码模式仅打开不定位)。文件内 Ctrl+F 查找仍归 M5。
 
@@ -230,7 +230,7 @@ v0.3.2——快捷键兜底与全屏(2026-09-15 已完成):搜索/专注模式�
 
 ## 十四、v0.4.0 分屏模式(源码编辑 + 实时预览,2026-09-16)
 
-推翻 §三 「不做左右分屏」的旧决策。`Mode = "read" | "edit" | "split"` 三态:标题栏三段按钮(阅读|分屏|源码)、原生菜单 mode-split、**Ctrl+Tab 三态循环**。分屏 = 编辑器 + 实时预览并排,分隔条可拖拽调比例(20%–80%,ref 直改 flexBasis 不触发 React 渲染)、悬停 ⇄ 按钮互换左右、双击恢复 50/50;`editorSide`/`ratio` 持久化到 config.json(`split` 字段,Option+serde default 向后兼容)。edit↔split 互切保留编辑缓冲(`nextEditorText`),split→read 先保存;zen 从分屏进入时先落回阅读;全屏与分屏正交共存。
+推翻 §三 「不做左右分屏」的旧决策。`Mode` 在 v0.4.0 为 `"read" | "edit" | "split"` 三态:标题栏三段按钮(阅读|分屏|源码)、原生菜单 mode-split、**Ctrl+Tab 三态循环**。**P1(§十五)加入 `"live"` 后为四态**:标题栏四段按钮(阅读|实时|分屏|源码),Ctrl+Tab 顺序改为 阅读 → 实时 → 分屏 → 源码。分屏 = 编辑器 + 实时预览并排,分隔条可拖拽调比例(20%–80%,ref 直改 flexBasis 不触发 React 渲染)、悬停 ⇄ 按钮互换左右、双击恢复 50/50;`editorSide`/`ratio` 持久化到 config.json(`split` 字段,Option+serde default 向后兼容)。edit↔split 互切保留编辑缓冲(`nextEditorText`),split→read 先保存;zen 从分屏进入时先落回阅读;全屏与分屏正交共存。
 
 核心机制:
 
@@ -239,3 +239,38 @@ v0.3.2——快捷键兜底与全屏(2026-09-15 已完成):搜索/专注模式�
 - **预览刷新链路**:编辑 onChange → 280ms 防抖 → `preview_update(text, baseFile)`(`core/preview.rs::PreviewStore`,spawn_blocking)→ 返回 `PreviewMeta{rev, chunkCount, chunks[], blocks[], outline[]}`;文本哈希相同零重算,重建时按「(标题计数,块源码文本)哈希」**逐块复用未变块的渲染 HTML**(CommonMark 块上下文独立);chunk HTML 由 `preview_chunks(rev,…)` 按需拉取,**rev 过期直接拒绝**(latest-wins,过期响应丢弃)。meta 应用后预览立即以「编辑器当前视口顶块」重新对齐,上方内容增删不引起预览视觉跳动。
 - **联动**:分屏下侧栏大纲取自 PreviewMeta(带 bi),大纲点击 = 编辑器跳行(预览跟随);目录搜索命中在分屏下跳编辑器行号;`activeHeading` 高亮由编辑器顶行经 `headingOwners` 映射驱动;`decideFsChange` 的 prompt 判定扩展到 split(带活动编辑缓冲)。
 - 前端新增:`components/SplitView.tsx`(拖拽/互换)、`components/PreviewPane.tsx`(虚拟化预览,派生自 ChunkedReader)、`split.ts` + `scrollSync.ts` 纯函数(含 vitest);Rust 新增 `core/preview.rs`、`preview_update`/`preview_chunks` 命令;`data-bi` 仅注入分块构建路径(`large_doc::build*`),阅读小文档与导出 HTML 走的 `render_markdown` 保持零改动。
+
+## 十五、实时编辑(P1,2026-10-31)
+
+**决策**:不重写编辑器,也不引入 ProseMirror / Milkdown。实时视图 = 现有 CodeMirror 6 编辑器 + 一层 ViewPlugin 装饰:Markdown 始终是唯一事实源,保存的仍是原始文本;装饰只负责「非活动块隐藏语法标记」,不是富文本模型。不新增任何依赖。
+
+**P1 范围**:标题、强调、行内代码、链接、引用、列表、任务复选框、图片、分隔线、frontmatter 调暗。代码围栏、公式、Mermaid、表格在 P1 仍以源码呈现(仅加行类,不做行内替换)。
+
+### 架构
+
+- `src/livePreview.ts`
+  - `buildLiveDecorations(state, opts)` 是纯函数:遍历 lezer `syntaxTree`,产出隐藏区间(replace)、widget(replace + `WidgetType`)、行内 mark、行级 line class,以及一份独立的原子区间集合。
+  - `ViewPlugin.fromClass` 在文档、选区、视口、语法树或 IME 合成状态变化时重建;只用 `view.visibleRanges` 裁剪,不遍历全文。
+  - `EditorView.atomicRanges`:被隐藏的标记整体跳过,光标不会落进 `**`、`](url)` 内部。
+- `src/markdownSupport.ts`:统一 `@codemirror/lang-markdown` + `markdownLanguage`(GFM),让 task list、删除线、表格等语法表面与 Rust 侧 `pulldown-cmark` 一致。
+- `src/components/SourceEditor.tsx`:用 `Compartment` 挂载/卸载 live 扩展,切换视图不重建 EditorView;实时与源码共用同一编辑缓冲、自动保存、编码/换行保持。实时↔源码保留撤销历史与滚动位置;经过分屏中转会因编辑器重新挂载而丢失撤销历史。
+
+### 渲染规则
+
+- **活动块**:光标所在块(段落、各级标题、ListItem、Blockquote、Table、FencedCode、HorizontalRule 等)整块保留原始 Markdown;多选区时取各光标所在块的并集。离开该块后标记自动隐藏。
+- **非活动块**:隐藏标题 `#`、强调/删除线标记、行内代码反引号、链接的括号与 URL(含 `LinkTitle`);无序列表用 `•` widget,任务项连 `- ` 一起隐藏只留复选框;`TaskMarker` 替换为可点击复选框,点击直接修改文档;图片替换为 `<img>`;引用/代码加行类;frontmatter 整块调暗且内部不做装饰。
+- **图片资源**:`resolveImagePath` 按文档目录做词法解析(`.` / `..`,根处截断),相对路径经 Tauri `convertFileSrc` 走 asset 协议;`http(s)` / `data:` / `#anchor` 原样交给浏览器。引用式图片没有 URL,保持源码。
+- **分隔线**:CM6 禁止 ViewPlugin 提供块级 decoration(否则渲染期抛 `Block decorations may not be specified via plugins`),因此不替换整块,而是隐藏整行文本并给行加 `rk-hr-line`,用行边框画出分隔线。
+- **多行构造**:replace decoration 不得跨行(否则抛 `Decorations that replace line breaks may not be specified via plugins`)。跨行图片(如 `![a\nb](x.png)`、`![alt](\n./x.png)`)直接放弃替换,保留原始 Markdown。
+- **IME**:`view.composing` 期间不生成任何 replace/widget,避免打断中文组词;合成结束后随下一次更新恢复。**P1 尚未做中文输入法人工验证**,这是当前已知风险。
+- **大纲**:实时视图大纲由 `outlineFromMarkdown` 从编辑缓冲解析(300ms 防抖),点击按渲染器同款 slug 规则定位到源码行。
+- **启动模式**:`config.startupMode`(`read` / `live` / `split` / `edit`,默认 `read`)只决定启动时自动恢复的那篇文档用哪个视图;手动打开文件仍进入阅读。
+
+### 测试
+
+`src/livePreview.test.ts` 用真实 lezer 语法树断言隐藏区间、行内 mark 与 widget(覆盖多行图片、链接标题、任务列表标记),并挂载真实 `EditorView` 验证渲染期不抛装饰异常。
+
+### 边界与后续
+
+- P1 不做:代码高亮 widget、公式 / Mermaid 行内预览、表格网格编辑、frontmatter 卡片化(目前只调暗)。
+- P2/P3 候选:把代码围栏升级为语法高亮 widget;公式与 Mermaid 做行内预览;表格网格编辑;frontmatter 卡片;更多跨行构造的安全替换。

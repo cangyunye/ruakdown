@@ -268,6 +268,8 @@ export function buildLiveDecorations(
               if (url) hide(url.from, url.to);
               const label = n.getChild("LinkLabel");
               if (label) hide(label.from, label.to);
+              const title = n.getChild("LinkTitle");
+              if (title) hide(title.from, title.to);
             }
             mark(lm[0].to, lm[1].from, "rk-link");
           }
@@ -293,12 +295,14 @@ export function buildLiveDecorations(
           lines(n.from, n.to, "rk-code");
           return false;
         case "ListMark": {
-          if (
-            !activeHere &&
-            n.parent?.parent?.name === "BulletList" &&
-            !n.parent?.getChild("Task")
-          ) {
-            widget(n.from, n.to, new BulletWidget());
+          if (!activeHere && n.parent?.parent?.name === "BulletList") {
+            const task = n.parent?.getChild("Task");
+            if (task) {
+              // Hide the dash and its trailing space, leaving the checkbox.
+              hide(n.from, task.from);
+            } else {
+              widget(n.from, n.to, new BulletWidget());
+            }
           }
           return false;
         }
@@ -314,6 +318,9 @@ export function buildLiveDecorations(
         }
         case "Image": {
           if (!activeHere) {
+            // A replace decoration may not cross a line break; a multi-line
+            // image (`![a\nb](x.png)`) stays as raw Markdown.
+            if (state.doc.lineAt(n.from).to < n.to) return false;
             const marks = n.getChildren("LinkMark");
             const alt =
               marks.length >= 2

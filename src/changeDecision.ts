@@ -37,7 +37,7 @@ export function decideFsChange(input: FsChangeInput): FsChangeDecision {
   ) {
     return "ignore";
   }
-  // edit and split both carry a live editor buffer that a silent reload
+  // edit, live and split all carry a live editor buffer that a silent reload
   // would clobber
   if (input.mode !== "read" && input.dirty) return "prompt";
   return "reload";
