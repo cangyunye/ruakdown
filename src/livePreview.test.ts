@@ -3,16 +3,16 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { describe, expect, it } from "vitest";
 import { buildLiveDecorations } from "./livePreview";
 
-function stateFor(doc: string, head = doc.length, gfm = false) {
+function stateFor(doc: string, head = doc.length) {
   return EditorState.create({
     doc,
     selection: { anchor: head },
-    extensions: [gfm ? markdown({ base: markdownLanguage }) : markdown()],
+    extensions: [markdown({ base: markdownLanguage })],
   });
 }
 
-function build(doc: string, head = doc.length, gfm = false) {
-  const state = stateFor(doc, head, gfm);
+function build(doc: string, head = doc.length) {
+  const state = stateFor(doc, head);
   return buildLiveDecorations(state, {
     from: 0,
     to: state.doc.length,
@@ -21,9 +21,9 @@ function build(doc: string, head = doc.length, gfm = false) {
   });
 }
 
-function hiddenRanges(doc: string, head = doc.length, gfm = false) {
+function hiddenRanges(doc: string, head = doc.length) {
   const out: [number, number][] = [];
-  build(doc, head, gfm).decorations.between(0, doc.length, (from, to, value) => {
+  build(doc, head).decorations.between(0, doc.length, (from, to, value) => {
     if (value.spec.widget == null && value.spec.class == null) {
       out.push([from, to]);
     }
@@ -31,9 +31,9 @@ function hiddenRanges(doc: string, head = doc.length, gfm = false) {
   return out;
 }
 
-function markClasses(doc: string, head = doc.length, gfm = false) {
+function markClasses(doc: string, head = doc.length) {
   const out: string[] = [];
-  build(doc, head, gfm).decorations.between(0, doc.length, (_f, _t, value) => {
+  build(doc, head).decorations.between(0, doc.length, (_f, _t, value) => {
     const cls = value.spec.class;
     if (typeof cls === "string") out.push(...cls.split(" "));
   });
@@ -66,10 +66,17 @@ describe("live decorations", () => {
   });
 
   it("marks strikethrough content", () => {
-    expect(markClasses("~~gone~~\n", 9, true)).toContain("rk-strike");
-    const ranges = hiddenRanges("~~gone~~\n", 9, true);
+    expect(markClasses("~~gone~~\n", 9)).toContain("rk-strike");
+    const ranges = hiddenRanges("~~gone~~\n", 9);
     expect(covers(ranges, 0)).toBe(true);
     expect(covers(ranges, 2)).toBe(false);
+  });
+
+  it("hides task list markers", () => {
+    const ranges = hiddenRanges("- [ ] todo\n");
+    expect(covers(ranges, 2)).toBe(true);
+    expect(covers(ranges, 4)).toBe(true);
+    expect(covers(ranges, 6)).toBe(false);
   });
 
   it("marks setext headings and hides their underline when inactive", () => {

@@ -133,9 +133,8 @@ export function buildLiveDecorations(
 
       switch (n.name) {
         case "HeaderMark":
-          if (!activeHere) hide(n.from, n.to);
-          return false;
         case "QuoteMark":
+        case "TaskMarker":
           if (!activeHere) hide(n.from, n.to);
           return false;
         case "InlineCode": {
