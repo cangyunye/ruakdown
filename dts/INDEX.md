@@ -1,12 +1,12 @@
 # dts 问题档案索引
 
-共 14 条 · 未解决 1 · 已解决 13 · 更新于 2026-10-31T20:47:10+08:00
+共 14 条 · 未解决 0 · 已解决 14 · 更新于 2026-10-31T21:16:54+08:00
 
 ## fix-theme-wudang
 
 | id | 日期 | 摘要 | 状态 |
 |----|------|------|------|
-| [fix-theme-wudang_code-invisible-black-on-black](fix-theme-wudang_code-invisible-black-on-black/dts.md) | 2026-10-31 | 论道武当主题下，阅读模式与实时模式的代码块/行内代码出现黑底黑字，文字不可见（截图红框与黑块）。 | **open** |
+| [fix-theme-wudang_code-invisible-black-on-black](fix-theme-wudang_code-invisible-black-on-black/dts.md) | 2026-10-31 | 论道武当主题下，阅读模式与实时模式的代码块/行内代码出现黑底黑字，文字不可见（截图红框与黑块）。 | resolved |
 
 ## rel-v0131
 

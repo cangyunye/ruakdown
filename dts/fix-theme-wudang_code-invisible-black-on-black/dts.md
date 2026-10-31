@@ -3,9 +3,9 @@ id: "fix-theme-wudang_code-invisible-black-on-black"
 domain: "fix-theme-wudang"
 slug: "code-invisible-black-on-black"
 title: "论道武当主题下，阅读模式与实时模式的代码块/行内代码出现黑底黑字，文字不可见（截图红框与黑块）。"
-status: "open"
+status: "resolved"
 created: "2026-10-31T20:47:10+08:00"
-resolved: ""
+resolved: "2026-10-31T21:16:54+08:00"
 commit: "739cf43"
 branch: "feat/wysiwyg"
 platform: "darwin"
@@ -36,6 +36,10 @@ session: "ses_e6ef099edffeeWN6cOO3eqBvUE"
 - [21:15] 新增 E2E 用例: 论道武当主题：实时模式代码块与行内代码可见
 - [21:15] 新增 E2E 用例: 实时模式 frontmatter 显示为卡片
 - [21:16] 记录证据 2 项
+- [21:16] 记录日志 (bash): 修复后前端 365 项通过、Rust 98 项通过（2 项为仓库已知 Windows 路径用例在 macOS 失败）。
+- [21:16] 记录证据 1 项
+- [21:16] 记录终端文本快照
+- [21:16] 结案
 
 ## 日志与摘录
 
@@ -46,6 +50,15 @@ wudang.json: dark=false, --code-bg=#141414, --pre-bg=#101010, --code-text=#f2f2e
 md-content.css: .md-body pre code { color: var(--text) } -> #1a1a1a on #101010 (invisible)
 index.css: :root[data-scheme=light] 提供深色 --syn-* 语法色, wudang 的深色代码面没有覆盖
 livePreview.ts: frontmatter 只加 rk-frontmatter 半透明, 围栏与 key/value 未格式化; SetextHeading2 可能把元信息行渲染成标题
+```
+
+### [bash] 2026-10-31T21:16:44+08:00 · 修复后前端 365 项通过、Rust 98 项通过（2 项为仓库已知 Windows 路径用例在 macOS 失败）。
+
+```
+pnpm exec tsc --noEmit: clean
+pnpm test: 23 files / 365 tests passed
+cargo test: 98 passed; 2 failed (core::fsops::inside_root_guard, core::markdown::img_rewrite_resolves_parent_climbs — 已知 Windows-only 用例)
+browser computed: .md-body pre code color rgb(242,242,238) on rgb(16,16,16); .md-body li code color rgb(242,242,238) on rgb(20,20,20); live .rk-code color rgb(242,242,238) on rgb(20,20,20)
 ```
 
 ## 测试场景与 E2E 用例
@@ -62,6 +75,12 @@ livePreview.ts: frontmatter 只加 rk-frontmatter 半透明, 围栏与 key/value
 
 ![修复后：实时视图（前）代码块/行内代码/ frontmatter 卡片；阅读视图（后）代码块与行内代码均为浅色文字。](shots/002.png)
 
+[文本快照: E2E 验证快照（浏览器 computed style 与测试结果）](shots/003-211654.txt)
+
 ## 修复方案
 
+1) md-content.css 的 .md-body pre code 从 --text 改为 --code-text；2) wudang.json 补齐深色 --syn-* 调色板，避免浅色 scheme 的深色 token 落在深色代码面上；3) 导出 HTML 增加 data-theme 与主题级 --syn-* 覆盖（在 scheme 调色板之后，保证优先级）；4) 实时模式 .rk-code / .rk-inline-code 显式使用 --code-text；5) 实时 frontmatter 从半透明行样式改为卡片：隐藏首尾 --- 并折叠行高、内容行背景卡片化、键名弱化、值正常着色；同时把 frontmatter 守卫改为跳过重叠节点但不跳过 Document 根，修复了有 frontmatter 时整篇实时装饰被跳过的问题。
+
 ## 复盘
+
+主题的 dark 字段只描述整体明暗，不能代表代码面明暗；浅色主题完全可以有深色代码块。判断语法调色板应看代码面亮度，主题作者必须在 JSON 中覆盖 --syn-*。实时 frontmatter 不能用 block widget（CM6 禁止 ViewPlugin 提供 block 装饰），行装饰卡片是可行替代。装饰遍历的前置守卫要区分根节点，否则一个 intersects 会把整棵树剪掉。
