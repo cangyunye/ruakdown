@@ -1874,3 +1874,34 @@ html.split-resizing * {
 .emoji-btn:hover {
   background: var(--hover);
 }
+
+/* ── 实时编辑（live preview）──────────────────────────────────────── */
+.rk-h1 { font-size: 1.8em; font-weight: 700; color: var(--heading); padding-top: 0.5em; }
+.rk-h2 { font-size: 1.45em; font-weight: 700; color: var(--heading); padding-top: 0.45em; }
+.rk-h3 { font-size: 1.2em; font-weight: 700; color: var(--heading); padding-top: 0.4em; }
+.rk-h4, .rk-h5, .rk-h6 { font-weight: 700; color: var(--heading); padding-top: 0.35em; }
+
+.rk-strong { font-weight: 700; }
+.rk-em { font-style: italic; }
+.rk-strike { text-decoration: line-through; }
+.rk-inline-code {
+  font-family: "Cascadia Code", Consolas, monospace;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+.rk-link { color: var(--link); text-decoration: underline; }
+
+.rk-quote {
+  border-left: 3px solid var(--border);
+  padding-left: 12px;
+  color: var(--quote-text);
+}
+.rk-code { background: var(--code-bg); }
+.rk-frontmatter { opacity: 0.55; }
+
+.rk-bullet { color: var(--accent); padding-right: 0.35em; }
+.rk-task { vertical-align: middle; margin-right: 0.35em; accent-color: var(--accent); }
+.rk-hr-line { border-top: 1px solid var(--border); padding-top: 1.2em; }
+.rk-image { max-width: 100%; border-radius: 6px; display: block; margin: 0.5em 0; }

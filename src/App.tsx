@@ -795,7 +795,7 @@ export default function App() {
   );
 
   // Open a file from search results, then position the view: read mode
-  // scrolls the rendered text to the first match, split mode jumps the
+  // scrolls the rendered text to the first match, split/live mode jumps the
   // editor to the hit's line; chunked docs (over 1MB) open without
   // positioning.
   const handleSearchHit = useCallback(
@@ -803,7 +803,7 @@ export default function App() {
       setQuickOpen(false);
       await openFile(path);
       const mode = stateRef.current.mode;
-      if (mode === "split") {
+      if (mode === "split" || mode === "live") {
         if (line == null) return;
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -1002,7 +1002,8 @@ export default function App() {
 
   // Anchor navigation (`[x](#heading)` links). Each view keeps its target in
   // a different place: split view's preview is virtualized (jump via the
-  // block table), large-doc read view mounts chunks on demand
+  // block table), source/live views resolve the heading id against the live
+  // buffer, large-doc read view mounts chunks on demand
   // (ChunkedReader.jumpTo), plain read view has the whole DOM mounted (falls
   // through to the plain id lookup in links.ts).
   const pendingAnchorRef = useRef<{ id: string; at: number } | null>(null);
@@ -1017,6 +1018,13 @@ export default function App() {
       const block = m.blocks.find((b) => b.headingId === id);
       if (!block) return false;
       pv.scrollToBlock(block.bi);
+      pendingAnchorRef.current = null;
+      return true;
+    }
+    if (s.mode === "edit" || s.mode === "live") {
+      const line = headingLineById(editTextRef.current).get(id);
+      if (line == null) return false;
+      editorRef.current?.gotoLine(line);
       pendingAnchorRef.current = null;
       return true;
     }

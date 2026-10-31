@@ -65,6 +65,10 @@ describe("decideFsChange", () => {
     expect(decideFsChange(base({ mode: "edit", dirty: true }))).toBe("prompt");
   });
 
+  it("prompts for a dirty live buffer", () => {
+    expect(decideFsChange(base({ mode: "live", dirty: true }))).toBe("prompt");
+  });
+
   it("reloads silently when the editor has no unsaved edits", () => {
     expect(decideFsChange(base({ mode: "edit", dirty: false }))).toBe("reload");
     expect(decideFsChange(base({ mode: "read" }))).toBe("reload");
