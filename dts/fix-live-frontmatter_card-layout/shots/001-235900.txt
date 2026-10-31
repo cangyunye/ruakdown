@@ -1,0 +1,6 @@
+keys: name/description/keywords/references width=104px, weight=600, color=#a08770
+values: name weight=700; description italic color=#a08770; width=698px
+keywords: 5 chips = skill/技能/能力包/提示词模板/skill设计, display=inline-block
+references: line text 'references:', [] hidden, no rk-fm-val
+line: color=#4b3a2f weight=400 (no rk-h2 orange leak)
+pnpm test: 368 passed; tsc clean

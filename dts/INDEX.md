@@ -1,12 +1,12 @@
 # dts 问题档案索引
 
-共 16 条 · 未解决 1 · 已解决 15 · 更新于 2026-10-31T23:58:34+08:00
+共 16 条 · 未解决 0 · 已解决 16 · 更新于 2026-10-31T23:59:00+08:00
 
 ## fix-live-frontmatter
 
 | id | 日期 | 摘要 | 状态 |
 |----|------|------|------|
-| [fix-live-frontmatter_card-layout](fix-live-frontmatter_card-layout/dts.md) | 2026-10-31 | 实时模式 frontmatter 元数据没有按阅读模式渲染：键值挤在一行、整体被 Setext 标题样式染成橙色加粗、keywords 没有 chip、空 re | **open** |
+| [fix-live-frontmatter_card-layout](fix-live-frontmatter_card-layout/dts.md) | 2026-10-31 | 实时模式 frontmatter 元数据没有按阅读模式渲染：键值挤在一行、整体被 Setext 标题样式染成橙色加粗、keywords 没有 chip、空 re | resolved |
 
 ## infra-dev
 
