@@ -1,11 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { tags as t } from "@lezer/highlight";
 import { linkAtLine } from "../links";
+import { livePreview } from "../livePreview";
 import { createSourceSearch, searchStateField, type SourceSearch } from "../sourceSearch";
 import {
   insertCodeBlock,
@@ -78,6 +79,10 @@ interface Props {
   /** User-driven document input that was NOT a palette trigger (further
    * typing, IME commits, backspace). The parent closes the slash palette. */
   onUserInput?: () => void;
+  /** Render the live-preview decorations (wysiwyg editing). */
+  live?: boolean;
+  /** Absolute path of the open document, for relative image resolution. */
+  docPath?: string;
 }
 
 const highlightStyle = HighlightStyle.define([
@@ -134,11 +139,12 @@ const editorTheme = EditorView.theme({
 });
 
 const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor(
-  { initialText, text, onChange, onSave, onScroll, onOpenLink, onPasteFile, onPasteHtml, onViewReady, onViewDestroy, onFocusChange, onSlashTrigger, onUserInput },
+  { initialText, text, onChange, onSave, onScroll, onOpenLink, onPasteFile, onPasteHtml, onViewReady, onViewDestroy, onFocusChange, onSlashTrigger, onUserInput, live = false, docPath = "" },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const liveCompartment = useRef(new Compartment());
   const lastPushedRef = useRef(initialText);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -342,6 +348,7 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
           }),
           syntaxHighlighting(highlightStyle),
           editorTheme,
+          liveCompartment.current.of(live ? livePreview(docPath) : []),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const value = update.state.doc.toString();
@@ -407,6 +414,18 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Toggling live↔source reconfigures the extension instead of remounting the
+  // editor, so undo history and scroll position survive the switch.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: liveCompartment.current.reconfigure(
+        live ? livePreview(docPath) : [],
+      ),
+    });
+  }, [live, docPath]);
 
   // Apply external reloads (file watcher / save echo) but never clobber typing.
   useEffect(() => {

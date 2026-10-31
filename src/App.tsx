@@ -2358,6 +2358,47 @@ export default function App() {
         ? doc.chunked.outline
         : (doc?.outline ?? []);
 
+  // Single editor element shared by the live, split and source views; the
+  // `live` prop (not a remount) switches live-preview on and off.
+  const editorPane = (
+    <div className="editor-wrap">
+      <Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}>
+        <SourceEditor
+          key={currentFile ?? ""}
+          ref={editorRef}
+          initialText={editTextRef.current}
+          text={doc?.text ?? ""}
+          docPath={currentFile ?? ""}
+          live={mode === "live"}
+          onChange={handleEditorChange}
+          onSave={saveDoc}
+          onScroll={handleEditorScroll}
+          onOpenLink={handleOpenLink}
+          onPasteFile={handleEditorPasteFile}
+          onPasteHtml={handleEditorPasteHtml}
+          onViewReady={handleEditorViewReady}
+          onViewDestroy={handleEditorViewDestroy}
+          onFocusChange={handleEditorFocusChange}
+          onSlashTrigger={handleSlashTrigger}
+          onUserInput={closeSlashMenu}
+        />
+      </Suspense>
+      {findOpen && (
+        <SearchPanel
+          mode={mode}
+          source={sourceSearch}
+          docText={doc?.text ?? ""}
+          docVersion={docVersion}
+          showReplace={findShowReplace}
+          onShowReplace={setFindShowReplace}
+          onClose={closeFind}
+          readWrap={readerWrapRef}
+          focusNonce={findFocusNonce}
+        />
+      )}
+    </div>
+  );
+
   return (
     <div className={fullscreenOn ? "app fullscreen" : "app"}>
       {!fullscreenOn && (
@@ -2467,42 +2508,7 @@ export default function App() {
                   ratio={splitRatio}
                   onResizeEnd={handleSplitResize}
                   onSwap={handleSplitSwap}
-                  editor={
-                    <div className="editor-wrap">
-                      <Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}>
-                        <SourceEditor
-                          key={currentFile ?? ""}
-                          ref={editorRef}
-                          initialText={editTextRef.current}
-                          text={doc.text}
-                          onChange={handleEditorChange}
-                          onSave={saveDoc}
-                          onScroll={handleEditorScroll}
-                          onOpenLink={handleOpenLink}
-                          onPasteFile={handleEditorPasteFile}
-                          onPasteHtml={handleEditorPasteHtml}
-                          onViewReady={handleEditorViewReady}
-                          onViewDestroy={handleEditorViewDestroy}
-                          onFocusChange={handleEditorFocusChange}
-                          onSlashTrigger={handleSlashTrigger}
-                          onUserInput={closeSlashMenu}
-                        />
-                      </Suspense>
-                      {findOpen && (
-                        <SearchPanel
-                          mode={mode}
-                          source={sourceSearch}
-                          docText={doc.text}
-                          docVersion={docVersion}
-                          showReplace={findShowReplace}
-                          onShowReplace={setFindShowReplace}
-                          onClose={closeFind}
-                          readWrap={readerWrapRef}
-                          focusNonce={findFocusNonce}
-                        />
-                      )}
-                    </div>
-                  }
+                  editor={editorPane}
                   preview={
                     <div className="reader-wrap split-preview">
                       {previewMeta ? (
@@ -2522,40 +2528,7 @@ export default function App() {
                   }
                 />
               ) : (
-                <div className="editor-wrap">
-                  <Suspense fallback={<div className="editor-loading">正在加载编辑器…</div>}>
-                    <SourceEditor
-                      key={currentFile ?? ""}
-                      ref={editorRef}
-                      initialText={editTextRef.current}
-                      text={doc.text}
-                      onChange={handleEditorChange}
-                      onSave={saveDoc}
-                      onScroll={handleEditorScroll}
-                      onOpenLink={handleOpenLink}
-                      onPasteFile={handleEditorPasteFile}
-                      onPasteHtml={handleEditorPasteHtml}
-                      onViewReady={handleEditorViewReady}
-                      onViewDestroy={handleEditorViewDestroy}
-                      onFocusChange={handleEditorFocusChange}
-                      onSlashTrigger={handleSlashTrigger}
-                      onUserInput={closeSlashMenu}
-                    />
-                  </Suspense>
-                  {findOpen && (
-                    <SearchPanel
-                      mode={mode}
-                      source={sourceSearch}
-                      docText={doc.text}
-                      docVersion={docVersion}
-                      showReplace={findShowReplace}
-                      onShowReplace={setFindShowReplace}
-                      onClose={closeFind}
-                      readWrap={readerWrapRef}
-                      focusNonce={findFocusNonce}
-                    />
-                  )}
-                </div>
+                editorPane
               )}
               {!fullscreenOn && (
                 <footer className="statusbar">
@@ -2563,7 +2536,13 @@ export default function App() {
                     {currentFile?.split(/[\\/]/).pop()}
                   </span>
                   <span>
-                    {mode === "read" ? "阅读视图" : mode === "split" ? "分屏模式" : "源码模式"}
+                    {mode === "read"
+                      ? "阅读视图"
+                      : mode === "live"
+                        ? "实时模式"
+                        : mode === "split"
+                          ? "分屏模式"
+                          : "源码模式"}
                   </span>
                   {zenOn && mode === "read" && zenPos && (
                     <span>
