@@ -8,6 +8,8 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { pathDirname } from "./fileOps";
 
 /** Block nodes whose raw Markdown stays visible while the cursor is inside. */
 const REVEAL_NODES = new Set([
@@ -91,6 +93,45 @@ export class TaskWidget extends WidgetType {
       });
     });
     return box;
+  }
+}
+
+class ImageWidget extends WidgetType {
+  constructor(
+    readonly docPath: string,
+    readonly rawSrc: string,
+    readonly alt: string,
+    readonly from: number,
+  ) {
+    super();
+  }
+  eq(other: ImageWidget) {
+    return (
+      other.docPath === this.docPath &&
+      other.rawSrc === this.rawSrc &&
+      other.alt === this.alt &&
+      other.from === this.from
+    );
+  }
+  get estimatedHeight() {
+    return 180;
+  }
+  toDOM(view: EditorView) {
+    const img = document.createElement("img");
+    img.className = "rk-image";
+    img.alt = this.alt;
+    const path = resolveImagePath(this.docPath, this.rawSrc);
+    try {
+      img.src = path ? convertFileSrc(path) : this.rawSrc;
+    } catch {
+      img.src = this.rawSrc;
+    }
+    img.addEventListener("load", () => view.requestMeasure());
+    img.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      view.dispatch({ selection: { anchor: this.from } });
+    });
+    return img;
   }
 }
 
@@ -272,6 +313,23 @@ export function buildLiveDecorations(
           }
           return false;
         }
+        case "Image": {
+          if (!activeHere) {
+            const marks = n.getChildren("LinkMark");
+            const alt =
+              marks.length >= 2
+                ? state.doc.sliceString(marks[0].to, marks[1].from)
+                : "";
+            const url = n.getChild("URL");
+            const rawSrc = url ? state.doc.sliceString(url.from, url.to) : "";
+            widget(
+              n.from,
+              n.to,
+              new ImageWidget(opts.docPath, rawSrc, alt, n.from),
+            );
+          }
+          return false;
+        }
         case "HorizontalRule": {
           if (!activeHere && n.parent?.name === "Document") {
             const l = state.doc.lineAt(n.from);
@@ -307,6 +365,43 @@ export function buildLiveDecorations(
       true,
     ),
   };
+}
+
+const ABSOLUTE_SRC = /^(?:https?:|data:|#|asset:)/i;
+
+/** Resolve a Markdown image src to an absolute local path, mirroring
+ * core/markdown.rs::resolve_img_path. Returns null for remote/data/anchor
+ * references and when the document has no directory. */
+export function resolveImagePath(docPath: string, rawSrc: string): string | null {
+  if (!docPath) return null;
+  let decoded = rawSrc.trim();
+  if (!decoded || ABSOLUTE_SRC.test(decoded)) return null;
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    /* keep the raw text; malformed escapes stay literal */
+  }
+  const dir = pathDirname(docPath).replace(/\\/g, "/");
+  if (!dir) return null;
+  return normalizePath(`${dir}/${decoded.replace(/\\/g, "/").replace(/^\/+/, "")}`);
+}
+
+/** Lexical `.` / `..` resolution; never touches the filesystem. */
+function normalizePath(p: string): string {
+  const drive = /^[A-Za-z]:/.exec(p)?.[0] ?? "";
+  const rest = p.slice(drive.length);
+  const abs = rest.startsWith("/");
+  const out: string[] = [];
+  for (const seg of rest.split("/")) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") {
+      if (out.length > 0 && out[out.length - 1] !== "..") out.pop();
+      else if (!abs && !drive) out.push("..");
+    } else {
+      out.push(seg);
+    }
+  }
+  return (drive || "") + (abs ? "/" : "") + out.join("/");
 }
 
 const liveTheme = EditorView.theme({

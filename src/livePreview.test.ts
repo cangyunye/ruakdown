@@ -5,6 +5,7 @@ import {
   TaskWidget,
   buildLiveDecorations,
   livePreview,
+  resolveImagePath,
 } from "./livePreview";
 import { markdownSupport } from "./markdownSupport";
 
@@ -348,5 +349,44 @@ describe("block widgets", () => {
   it("stops scanning for a frontmatter delimiter after 200 lines", () => {
     const doc = `---\n${"k: v\n".repeat(210)}---\n\nbody\n`;
     expect(markClasses(doc)).not.toContain("rk-frontmatter");
+  });
+});
+
+describe("resolveImagePath", () => {
+  it("resolves relative paths next to the document", () => {
+    expect(resolveImagePath("/ws/doc/a.md", "./img/x.png")).toBe(
+      "/ws/doc/img/x.png",
+    );
+    expect(resolveImagePath("/ws/doc/a.md", "../assets/中文 图.png")).toBe(
+      "/ws/assets/中文 图.png",
+    );
+    expect(resolveImagePath("C:\\ws\\doc\\a.md", ".\\img\\x.png")).toBe(
+      "C:/ws/doc/img/x.png",
+    );
+  });
+
+  it("decodes percent-encoded names", () => {
+    expect(resolveImagePath("/ws/a.md", "img/%E4%B8%AD%E6%96%87.png")).toBe(
+      "/ws/img/中文.png",
+    );
+  });
+
+  it("passes absolute and non-file references through", () => {
+    expect(resolveImagePath("/ws/a.md", "https://example.com/x.png")).toBeNull();
+    expect(resolveImagePath("/ws/a.md", "http://example.com/x.png")).toBeNull();
+    expect(resolveImagePath("/ws/a.md", "data:image/png;base64,xx")).toBeNull();
+    expect(resolveImagePath("/ws/a.md", "asset://localhost/x.png")).toBeNull();
+    expect(resolveImagePath("/ws/a.md", "#anchor")).toBeNull();
+  });
+
+  it("clamps parent traversal at the root", () => {
+    expect(resolveImagePath("/ws/a.md", "../../x.png")).toBe("/x.png");
+  });
+});
+
+describe("image widget", () => {
+  it("replaces an image node outside the active block", () => {
+    expect(widgetNames("![alt](img.png)\n")).toContain("ImageWidget");
+    expect(widgetNames("![alt](img.png)\n", 2)).not.toContain("ImageWidget");
   });
 });
