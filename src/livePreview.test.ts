@@ -1,13 +1,13 @@
 import { EditorSelection, EditorState } from "@codemirror/state";
-import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { describe, expect, it } from "vitest";
 import { buildLiveDecorations } from "./livePreview";
+import { markdownSupport } from "./markdownSupport";
 
 function stateFor(doc: string, head = doc.length) {
   return EditorState.create({
     doc,
     selection: { anchor: head },
-    extensions: [markdown({ base: markdownLanguage })],
+    extensions: [markdownSupport],
   });
 }
 
@@ -135,7 +135,7 @@ describe("live decorations", () => {
         EditorSelection.cursor(2),
         EditorSelection.cursor(second + 3),
       ]),
-      extensions: [markdown(), EditorState.allowMultipleSelections.of(true)],
+      extensions: [markdownSupport, EditorState.allowMultipleSelections.of(true)],
     });
     const { decorations } = buildLiveDecorations(state, {
       from: 0,

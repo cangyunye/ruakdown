@@ -3,7 +3,7 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language";
-import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { markdownSupport } from "../markdownSupport";
 import { tags as t } from "@lezer/highlight";
 import { linkAtLine } from "../links";
 import { livePreview } from "../livePreview";
@@ -292,7 +292,7 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
           keymap.of([...defaultKeymap, ...historyKeymap]),
           searchStateField,
           indentUnit.of("    "),
-          markdown({ base: markdownLanguage }),
+          markdownSupport,
           EditorView.lineWrapping,
           EditorView.domEventHandlers({
             mousedown(event, view) {
