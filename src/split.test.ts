@@ -6,6 +6,7 @@ import {
   nextMode,
   normalizeRatio,
   normalizeSide,
+  normalizeStartupMode,
 } from "./split";
 
 describe("clampRatio", () => {
@@ -43,8 +44,9 @@ describe("normalize helpers", () => {
 });
 
 describe("nextMode", () => {
-  it("cycles read → split → edit → read", () => {
-    expect(nextMode("read")).toBe("split");
+  it("cycles read → live → split → edit → read", () => {
+    expect(nextMode("read")).toBe("live");
+    expect(nextMode("live")).toBe("split");
     expect(nextMode("split")).toBe("edit");
     expect(nextMode("edit")).toBe("read");
   });
@@ -64,5 +66,26 @@ describe("nextEditorText", () => {
   it("does not matter for read (callers save first)", () => {
     expect(nextEditorText("read", "split", "live", "doc")).toBe("doc");
     expect(nextEditorText("read", "edit", "live", "doc")).toBe("doc");
+  });
+
+  it("treats live as an editing view", () => {
+    expect(nextEditorText("live", "read", "stale", "doc")).toBe("doc");
+    expect(nextEditorText("edit", "live", "live edits", "doc")).toBe("live edits");
+  });
+});
+
+describe("normalizeStartupMode", () => {
+  it("accepts the four modes", () => {
+    expect(normalizeStartupMode("read")).toBe("read");
+    expect(normalizeStartupMode("live")).toBe("live");
+    expect(normalizeStartupMode("split")).toBe("split");
+    expect(normalizeStartupMode("edit")).toBe("edit");
+  });
+
+  it("falls back to read for missing or corrupt values", () => {
+    expect(normalizeStartupMode(undefined)).toBe("read");
+    expect(normalizeStartupMode(null)).toBe("read");
+    expect(normalizeStartupMode("wysiwyg")).toBe("read");
+    expect(normalizeStartupMode(3)).toBe("read");
   });
 });

@@ -1,4 +1,4 @@
-export type Mode = "read" | "edit" | "split";
+export type Mode = "read" | "live" | "split" | "edit";
 export type EditorSide = "left" | "right";
 
 const MIN_RATIO = 0.2;
@@ -24,16 +24,17 @@ export function flipSide(side: EditorSide): EditorSide {
   return side === "left" ? "right" : "left";
 }
 
-/** Ctrl+Tab cycles 阅读 → 分屏 → 源码 → 阅读. */
+/** Ctrl+Tab cycles 阅读 → 实时 → 分屏 → 源码 → 阅读. */
 export function nextMode(mode: Mode): Mode {
-  if (mode === "read") return "split";
+  if (mode === "read") return "live";
+  if (mode === "live") return "split";
   return mode === "split" ? "edit" : "read";
 }
 
 /**
  * Editor buffer after a mode switch. Entering an editing view from read
  * seeds it with the document text; moving between the two editing views
- * (edit↔split) keeps the live buffer so unsaved edits survive. Read mode
+ * (edit↔split↔live) keeps the live buffer so unsaved edits survive. Read mode
  * discards the buffer (callers save first).
  */
 export function nextEditorText(
@@ -44,4 +45,9 @@ export function nextEditorText(
 ): string {
   if (prev === "read" && next !== "read") return docText;
   return next === "read" ? docText : editText;
+}
+
+/** Startup view preference; anything unrecognised means the old default. */
+export function normalizeStartupMode(raw: unknown): Mode {
+  return raw === "live" || raw === "split" || raw === "edit" ? raw : "read";
 }
