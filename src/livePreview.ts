@@ -5,6 +5,7 @@ import {
   EditorView,
   ViewPlugin,
   type ViewUpdate,
+  WidgetType,
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 
@@ -43,6 +44,73 @@ export interface LiveDecorations {
 interface Range {
   from: number;
   to: number;
+}
+
+class BulletWidget extends WidgetType {
+  eq() {
+    return true;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "rk-bullet";
+    el.textContent = "•";
+    return el;
+  }
+}
+
+class TaskWidget extends WidgetType {
+  constructor(
+    readonly checked: boolean,
+    readonly from: number,
+    readonly to: number,
+  ) {
+    super();
+  }
+  eq(other: TaskWidget) {
+    return (
+      other.checked === this.checked &&
+      other.from === this.from &&
+      other.to === this.to
+    );
+  }
+  toDOM(view: EditorView) {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.className = "rk-task";
+    box.checked = this.checked;
+    box.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      view.dispatch({
+        changes: {
+          from: this.from,
+          to: this.to,
+          insert: this.checked ? "[ ]" : "[x]",
+        },
+      });
+    });
+    return box;
+  }
+}
+
+class HrWidget extends WidgetType {
+  constructor(readonly pos: number) {
+    super();
+  }
+  eq(other: HrWidget) {
+    return other.pos === this.pos;
+  }
+  get estimatedHeight() {
+    return 20;
+  }
+  toDOM(view: EditorView) {
+    const hr = document.createElement("hr");
+    hr.className = "rk-hr";
+    hr.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      view.dispatch({ selection: { anchor: this.pos } });
+    });
+    return hr;
+  }
 }
 
 function revealRange(state: EditorState, pos: number): Range {
@@ -86,7 +154,13 @@ export function buildLiveDecorations(
   const active = activeLines(state);
   const hides: { from: number; to: number }[] = [];
   const marks: { from: number; to: number; cls: string }[] = [];
+  const widgets: { from: number; to: number; deco: Decoration }[] = [];
   const lineClasses = new Map<number, string[]>();
+
+  const widget = (from: number, to: number, w: WidgetType, block = false) => {
+    if (from >= to || opts.composing) return;
+    widgets.push({ from, to, deco: Decoration.replace({ widget: w, block }) });
+  };
 
   const hide = (from: number, to: number) => {
     if (from >= to || opts.composing) return;
@@ -124,17 +198,20 @@ export function buildLiveDecorations(
     mark(marks_[0].to, marks_[marks_.length - 1].from, cls);
   };
 
+  const fm = frontmatterLines(state);
+
   syntaxTree(state).iterate({
     from: opts.from,
     to: opts.to,
     enter: (ref) => {
       const n = ref.node;
+      // Frontmatter is not a lezer node; never decorate inside it.
+      if (fm && n.from >= fm.from && n.to <= fm.to) return false;
       const activeHere = intersects({ from: n.from, to: n.to }, active);
 
       switch (n.name) {
         case "HeaderMark":
         case "QuoteMark":
-        case "TaskMarker":
           if (!activeHere) hide(n.from, n.to);
           return false;
         case "InlineCode": {
@@ -194,14 +271,46 @@ export function buildLiveDecorations(
         case "CodeBlock":
           lines(n.from, n.to, "rk-code");
           return false;
+        case "ListMark": {
+          if (!activeHere && n.parent?.parent?.name === "BulletList") {
+            widget(n.from, n.to, new BulletWidget());
+          }
+          return false;
+        }
+        case "TaskMarker": {
+          if (!activeHere) {
+            const checked = state.doc
+              .sliceString(n.from, n.to)
+              .toLowerCase()
+              .includes("x");
+            widget(n.from, n.to, new TaskWidget(checked, n.from, n.to));
+          }
+          return false;
+        }
+        case "HorizontalRule": {
+          if (!activeHere && n.parent?.name === "Document") {
+            const l = state.doc.lineAt(n.from);
+            widget(l.from, l.to, new HrWidget(l.from), true);
+          }
+          return false;
+        }
         default:
           return;
       }
     },
   });
 
+  if (fm && !intersects(fm, active)) {
+    for (let p = fm.from; p <= fm.to; ) {
+      const l = state.doc.lineAt(p);
+      line(l.from, "rk-frontmatter");
+      p = l.to + 1;
+    }
+  }
+
   const ranges = [
     ...hides.map((h) => Decoration.replace({}).range(h.from, h.to)),
+    ...widgets.map((w) => w.deco.range(w.from, w.to)),
     ...marks.map((m) => Decoration.mark({ class: m.cls }).range(m.from, m.to)),
     ...Array.from(lineClasses, ([pos, classes]) =>
       Decoration.line({ class: classes.join(" ") }).range(pos),
@@ -286,4 +395,14 @@ function build(view: EditorView, docPath: string): LiveDecorations {
     composing: view.composing,
     docPath,
   });
+}
+
+function frontmatterLines(state: EditorState): Range | null {
+  const doc = state.doc;
+  if (doc.lines < 2 || doc.line(1).text.trimEnd() !== "---") return null;
+  for (let n = 2; n <= doc.lines; n++) {
+    const t = doc.line(n).text.trim();
+    if (t === "---" || t === "...") return { from: 0, to: doc.line(n).to };
+  }
+  return null;
 }

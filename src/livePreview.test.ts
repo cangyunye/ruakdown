@@ -72,11 +72,8 @@ describe("live decorations", () => {
     expect(covers(ranges, 2)).toBe(false);
   });
 
-  it("hides task list markers", () => {
-    const ranges = hiddenRanges("- [ ] todo\n");
-    expect(covers(ranges, 2)).toBe(true);
-    expect(covers(ranges, 4)).toBe(true);
-    expect(covers(ranges, 6)).toBe(false);
+  it("does not hide task markers that now render as a widget", () => {
+    expect(covers(hiddenRanges("- [ ] todo\n"), 2)).toBe(false);
   });
 
   it("marks setext headings and hides their underline when inactive", () => {
@@ -181,5 +178,41 @@ describe("live decorations", () => {
     });
     expect(hidden).toEqual([]);
     expect(atomic.size).toBe(0);
+  });
+});
+
+function widgetNames(doc: string, head = doc.length): string[] {
+  const names: string[] = [];
+  build(doc, head).decorations.between(0, doc.length, (_from, _to, value) => {
+    if (value.spec.widget) names.push(value.spec.widget.constructor.name);
+  });
+  return names;
+}
+
+describe("block widgets", () => {
+  it("renders a checkbox for a task item outside the active block", () => {
+    expect(widgetNames("- [ ] todo\n")).toContain("TaskWidget");
+    expect(widgetNames("- [ ] todo\n", 3)).not.toContain("TaskWidget");
+  });
+
+  it("renders a bullet for unordered lists but leaves ordered numbers alone", () => {
+    expect(widgetNames("- item\n")).toContain("BulletWidget");
+    expect(widgetNames("1. item\n")).not.toContain("BulletWidget");
+  });
+
+  it("renders a horizontal rule as a block widget", () => {
+    expect(widgetNames("---\n\npara\n")).toContain("HrWidget");
+  });
+
+  it("dims a frontmatter block without hiding it", () => {
+    const classes: string[] = [];
+    build("---\ntitle: x\n---\n\nbody\n").decorations.between(
+      0,
+      24,
+      (_f, _t, value) => {
+        if (typeof value.spec.class === "string") classes.push(value.spec.class);
+      },
+    );
+    expect(classes.some((c) => c.includes("rk-frontmatter"))).toBe(true);
   });
 });
