@@ -2172,6 +2172,7 @@ export default function App() {
           opened = await openFile(cfg.lastFile);
         }
         if (opened && startMode !== "read") {
+          if (startMode === "live") setLiveOutline(outlineFromMarkdown(opened.text));
           setMode(startMode);
           if (startMode === "split") refreshPreview(true, "split");
         }
@@ -2379,9 +2380,10 @@ export default function App() {
 
   // The sidebar outline in split view comes from the live preview build so
   // it stays aligned with the edited buffer; in live view it is scanned from
-  // the buffer directly (see scheduleLiveOutline).
+  // the buffer directly (see scheduleLiveOutline). With no document open the
+  // fallbacks below yield an empty outline, so ignore the stale live buffer.
   const currentOutline =
-    mode === "live"
+    mode === "live" && doc
       ? liveOutline
       : mode === "split" && previewMeta
         ? previewMeta.outline

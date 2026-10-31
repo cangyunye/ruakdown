@@ -9,6 +9,10 @@
  * Best-effort by design: headings whose rendered text differs from their
  * raw line (setext underlines, inline HTML, image-only titles) can produce
  * no id or a divergent one; callers treat a miss as "no jump".
+ *
+ * Known limitation: `#` lines inside fenced code blocks are still counted
+ * here while the Rust renderer skips them, so the live outline can show
+ * phantom headings and shift duplicate slug numbering.
  */
 
 import type { OutlineItem } from "./ipc";
