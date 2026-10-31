@@ -508,6 +508,7 @@ export default function TitleBar({
           {(
             [
               ["read", "阅读"],
+              ["live", "实时"],
               ["split", "分屏"],
               ["edit", "源码"],
             ] as const

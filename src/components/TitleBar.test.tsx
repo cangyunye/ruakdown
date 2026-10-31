@@ -56,6 +56,8 @@ describe("TitleBar", () => {
     expect(onMode).toHaveBeenCalledWith("split");
     fireEvent.click(screen.getByRole("button", { name: "源码" }));
     expect(onMode).toHaveBeenCalledWith("edit");
+    fireEvent.click(screen.getByRole("button", { name: "实时" }));
+    expect(onMode).toHaveBeenCalledWith("live");
   });
 
   it("marks the active mode", () => {
