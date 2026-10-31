@@ -40,6 +40,7 @@ session: "ses_e6ef099edffeeWN6cOO3eqBvUE"
 - [21:16] 记录证据 1 项
 - [21:16] 记录终端文本快照
 - [21:16] 结案
+- [21:20] 记录日志 (bash): 全主题对比度审计：仅论道武当存在『浅色 scheme + 深色代码面』错配；其余主题代码文字对比度均 ≥4.7。另发现导出 HTML 的深色 --syn-variable 误用浅色值，已修。
 
 ## 日志与摘录
 
@@ -59,6 +60,16 @@ pnpm exec tsc --noEmit: clean
 pnpm test: 23 files / 365 tests passed
 cargo test: 98 passed; 2 failed (core::fsops::inside_root_guard, core::markdown::img_rewrite_resolves_parent_climbs — 已知 Windows-only 用例)
 browser computed: .md-body pre code color rgb(242,242,238) on rgb(16,16,16); .md-body li code color rgb(242,242,238) on rgb(20,20,20); live .rk-code color rgb(242,242,238) on rgb(20,20,20)
+```
+
+### [bash] 2026-10-31T21:20:18+08:00 · 全主题对比度审计：仅论道武当存在『浅色 scheme + 深色代码面』错配；其余主题代码文字对比度均 ≥4.7。另发现导出 HTML 的深色 --syn-variable 误用浅色值，已修。
+
+```
+code-text/code-bg 与 code-text/pre-bg 对比度：赛博朋克 11.63/13.71、暗色 5.21/6.59、石墨 7.01/8.65、浅色 14.09/14.84、高山流水 6.25/6.43、陈旧报纸 5.91/5.97、魅影紫罗兰 8.95/10.77、青梅煮酒 5.07/5.17、蓝天白云 6.13/6.41、夕阳海岸 4.77/4.98、无边绿意 5.73/6.01、论道武当 16.41/16.95。
+scheme/pre-bg 错配：仅 wudang（dark=false, pre-luma=0.01）；其余 light 主题 pre-bg 均浅色，dark 主题 pre-bg 均深色。
+所有主题按各自 data-scheme 的 --syn-* 在 pre-bg 上对比度均 ≥3.0；wudang 已补深色调色板。
+附带发现：export.rs 深色 --syn-variable 为 #0550ae（浅色值），在深色 pre-bg 上对比度不足；已改为 #79c0ff 并加单测。
+次要：部分浅色主题 --muted/--panel 对比度 3.05–3.63（青梅煮酒 3.08、夕阳海岸 3.05），frontmatter 键名与 quote 文本偏低但可读，属既有视觉取舍，本次不改。
 ```
 
 ## 测试场景与 E2E 用例

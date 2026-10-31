@@ -175,7 +175,7 @@ body {
 }
 .md-body { max-width: 860px; margin: 0 auto; padding: 40px 48px 80px; line-height: 1.75; }
 :root[data-scheme="light"] { --syn-keyword:#cf222e; --syn-string:#0a3069; --syn-comment:#6e7781; --syn-number:#0550ae; --syn-const:#0550ae; --syn-function:#8250df; --syn-type:#953800; --syn-variable:#0550ae; --syn-tag:#116329; --syn-attr:#0550ae; }
-:root[data-scheme="dark"] { --syn-keyword:#ff7b72; --syn-string:#a5d6ff; --syn-comment:#8b949e; --syn-number:#79c0ff; --syn-const:#79c0ff; --syn-function:#d2a8ff; --syn-type:#ffa657; --syn-variable:#0550ae; --syn-tag:#7ee787; --syn-attr:#79c0ff; }
+:root[data-scheme="dark"] { --syn-keyword:#ff7b72; --syn-string:#a5d6ff; --syn-comment:#8b949e; --syn-number:#79c0ff; --syn-const:#79c0ff; --syn-function:#d2a8ff; --syn-type:#ffa657; --syn-variable:#79c0ff; --syn-tag:#7ee787; --syn-attr:#79c0ff; }
 html { scroll-behavior: smooth; }
 .md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 { scroll-margin-top: 16px; }
 #tocbtn { position: fixed; top: 12px; right: 12px; z-index: 21; border: 1px solid var(--border);
@@ -300,6 +300,15 @@ mod tests {
             "theme override must come after the scheme palette"
         );
         assert!(html.contains("--syn-keyword:#ff7b72"), "{}", html);
+    }
+
+    #[test]
+    fn dark_scheme_syntax_palette_matches_the_app() {
+        assert!(EXPORT_CSS.contains(":root[data-scheme=\"dark\"]"));
+        assert!(
+            EXPORT_CSS.contains("--syn-variable:#79c0ff"),
+            "dark export palette must match index.css (variable token)"
+        );
     }
 }
 
