@@ -1,13 +1,19 @@
 import { EditorView, type WidgetType } from "@codemirror/view";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { describe, expect, it, vi } from "vitest";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import {
+  ImageWidget,
   TaskWidget,
   buildLiveDecorations,
   livePreview,
   resolveImagePath,
 } from "./livePreview";
 import { markdownSupport } from "./markdownSupport";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: vi.fn((p: string) => `asset://${p}`),
+}));
 
 function stateFor(doc: string, head = doc.length) {
   return EditorState.create({
@@ -382,11 +388,47 @@ describe("resolveImagePath", () => {
   it("clamps parent traversal at the root", () => {
     expect(resolveImagePath("/ws/a.md", "../../x.png")).toBe("/x.png");
   });
+
+  it("resolves images next to a root-level document", () => {
+    expect(resolveImagePath("/a.md", "x.png")).toBe("/x.png");
+  });
 });
 
 describe("image widget", () => {
+  const fakeView = () =>
+    ({
+      posAtDOM: () => 0,
+      dispatch: vi.fn(),
+      focus: vi.fn(),
+      requestMeasure: vi.fn(),
+    }) as unknown as EditorView;
+
   it("replaces an image node outside the active block", () => {
     expect(widgetNames("![alt](img.png)\n")).toContain("ImageWidget");
     expect(widgetNames("![alt](img.png)\n", 2)).not.toContain("ImageWidget");
+  });
+
+  it("keeps reference-style images as raw Markdown", () => {
+    expect(widgetNames("![alt][ref]\n")).not.toContain("ImageWidget");
+    expect(widgetNames("![alt]\n")).not.toContain("ImageWidget");
+  });
+
+  it("keeps image widgets out of the atomic set", () => {
+    expect(build("![alt](img.png)\n").atomic.size).toBe(0);
+  });
+
+  it("renders a relative image through convertFileSrc", () => {
+    vi.mocked(convertFileSrc).mockClear();
+    const img = new ImageWidget("/ws/a.md", "img.png", "alt").toDOM(fakeView());
+    expect(img.getAttribute("src")).toBe("asset:///ws/img.png");
+    expect(convertFileSrc).toHaveBeenCalledWith("/ws/img.png");
+  });
+
+  it("passes remote images through without convertFileSrc", () => {
+    vi.mocked(convertFileSrc).mockClear();
+    const src = "https://example.com/x.png";
+    const img = new ImageWidget("/ws/a.md", src, "alt").toDOM(fakeView());
+    expect(img.getAttribute("src")).toBe(src);
+    expect(convertFileSrc).not.toHaveBeenCalled();
   });
 });

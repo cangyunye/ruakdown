@@ -96,12 +96,11 @@ export class TaskWidget extends WidgetType {
   }
 }
 
-class ImageWidget extends WidgetType {
+export class ImageWidget extends WidgetType {
   constructor(
     readonly docPath: string,
     readonly rawSrc: string,
     readonly alt: string,
-    readonly from: number,
   ) {
     super();
   }
@@ -109,17 +108,14 @@ class ImageWidget extends WidgetType {
     return (
       other.docPath === this.docPath &&
       other.rawSrc === this.rawSrc &&
-      other.alt === this.alt &&
-      other.from === this.from
+      other.alt === this.alt
     );
-  }
-  get estimatedHeight() {
-    return 180;
   }
   toDOM(view: EditorView) {
     const img = document.createElement("img");
     img.className = "rk-image";
     img.alt = this.alt;
+    img.draggable = false;
     const path = resolveImagePath(this.docPath, this.rawSrc);
     try {
       img.src = path ? convertFileSrc(path) : this.rawSrc;
@@ -128,8 +124,11 @@ class ImageWidget extends WidgetType {
     }
     img.addEventListener("load", () => view.requestMeasure());
     img.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
       e.preventDefault();
-      view.dispatch({ selection: { anchor: this.from } });
+      const pos = view.posAtDOM(img);
+      view.dispatch({ selection: { anchor: pos } });
+      view.focus();
     });
     return img;
   }
@@ -322,10 +321,12 @@ export function buildLiveDecorations(
                 : "";
             const url = n.getChild("URL");
             const rawSrc = url ? state.doc.sliceString(url.from, url.to) : "";
+            // Reference-style images have no URL; keep their Markdown visible.
+            if (!url || !rawSrc) return false;
             widget(
               n.from,
               n.to,
-              new ImageWidget(opts.docPath, rawSrc, alt, n.from),
+              new ImageWidget(opts.docPath, rawSrc, alt),
             );
           }
           return false;
@@ -369,39 +370,53 @@ export function buildLiveDecorations(
 
 const ABSOLUTE_SRC = /^(?:https?:|data:|#|asset:)/i;
 
-/** Resolve a Markdown image src to an absolute local path, mirroring
- * core/markdown.rs::resolve_img_path. Returns null for remote/data/anchor
- * references and when the document has no directory. */
+/** Resolve a Markdown image src to an absolute local path, following the same
+ * shape as core/markdown.rs::resolve_img_path but clamping `..` at the root.
+ * Returns null for remote/data/anchor references and when the document has no
+ * directory. */
 export function resolveImagePath(docPath: string, rawSrc: string): string | null {
   if (!docPath) return null;
   let decoded = rawSrc.trim();
-  if (!decoded || ABSOLUTE_SRC.test(decoded)) return null;
+  if (!decoded) return null;
   try {
     decoded = decodeURIComponent(decoded);
   } catch {
     /* keep the raw text; malformed escapes stay literal */
   }
-  const dir = pathDirname(docPath).replace(/\\/g, "/");
-  if (!dir) return null;
-  return normalizePath(`${dir}/${decoded.replace(/\\/g, "/").replace(/^\/+/, "")}`);
+  if (ABSOLUTE_SRC.test(decoded)) return null;
+  let dir = pathDirname(docPath).replace(/\\/g, "/");
+  if (!dir) {
+    if (!docPath.startsWith("/")) return null;
+    dir = "/";
+  }
+  const rel = decoded.replace(/\\/g, "/").replace(/^\/+/, "");
+  return normalizePath(dir.endsWith("/") ? `${dir}${rel}` : `${dir}/${rel}`);
 }
 
 /** Lexical `.` / `..` resolution; never touches the filesystem. */
 function normalizePath(p: string): string {
   const drive = /^[A-Za-z]:/.exec(p)?.[0] ?? "";
   const rest = p.slice(drive.length);
-  const abs = rest.startsWith("/");
+  const unc = !drive && rest.startsWith("//");
+  const abs = !unc && rest.startsWith("/");
   const out: string[] = [];
   for (const seg of rest.split("/")) {
     if (!seg || seg === ".") continue;
     if (seg === "..") {
       if (out.length > 0 && out[out.length - 1] !== "..") out.pop();
-      else if (!abs && !drive) out.push("..");
+      else if (!abs && !drive && !unc) out.push("..");
     } else {
       out.push(seg);
     }
   }
-  return (drive || "") + (abs ? "/" : "") + out.join("/");
+  const prefix = drive
+    ? drive + (abs ? "/" : "")
+    : unc
+      ? "//"
+      : abs
+        ? "/"
+        : "";
+  return prefix + out.join("/");
 }
 
 const liveTheme = EditorView.theme({
