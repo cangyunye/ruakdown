@@ -556,6 +556,14 @@ pub fn list_themes() -> Vec<theme::ThemeMeta> {
     theme::list()
 }
 
+/// Render one TeX run to the same HTML the reading view emits (`.math`
+/// span with MathML inside, raw-text fallback on parse errors). The live
+/// view's display-math widget calls this so both surfaces agree.
+#[tauri::command]
+pub fn render_math(tex: String, display: bool) -> Result<String, String> {
+    Ok(markdown::math_html(&tex, display))
+}
+
 /// Absolute path of the bundled mermaid.min.js. The webview loads it through
 /// the asset protocol (single copy — the npm mermaid dependency is gone),
 /// while export/serve read the same file directly.

@@ -1,11 +1,13 @@
 import { EditorView, type WidgetType } from "@codemirror/view";
 import { EditorSelection, EditorState } from "@codemirror/state";
+import { tags as t } from "@lezer/highlight";
 import { describe, expect, it, vi } from "vitest";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   ImageWidget,
   TaskWidget,
   buildLiveDecorations,
+  liveHighlight,
   livePreview,
   resolveImagePath,
 } from "./livePreview";
@@ -97,6 +99,105 @@ describe("live decorations", () => {
 
   it("applies a code line class to indented code blocks", () => {
     expect(markClasses("    indented\n")).toContain("rk-code");
+  });
+
+  it("hides both fence lines of an inactive code block and keeps the code", () => {
+    const doc = "```js\nconst a = 1;\n```\n\nafter\n";
+    const ranges = hiddenRanges(doc);
+    expect(ranges).toContainEqual([0, 5]);
+    expect(ranges).toContainEqual([doc.indexOf("```\n\n"), doc.indexOf("```\n\n") + 3]);
+    expect(covers(ranges, doc.indexOf("const"))).toBe(false);
+    const classes = markClasses(doc);
+    expect(classes).toContain("rk-code");
+    expect(classes).toContain("rk-code-first");
+    expect(classes).toContain("rk-code-last");
+  });
+
+  it("shows the fences again while the cursor is inside the code block", () => {
+    const doc = "```js\nconst a = 1;\n```\n";
+    expect(hiddenRanges(doc, doc.indexOf("const") + 2)).toEqual([]);
+    expect(markClasses(doc, doc.indexOf("const") + 2)).toContain("rk-code");
+  });
+
+  it("styles a GFM alert and hides its tag when inactive", () => {
+    const doc = "> [!NOTE]\n> body\n\nafter\n";
+    const classes = markClasses(doc);
+    expect(classes).toContain("rk-alert");
+    expect(classes).toContain("rk-alert-note");
+    expect(classes).toContain("rk-alert-title");
+    expect(classes).toContain("rk-quote-first");
+    expect(classes).toContain("rk-quote-last");
+    // The tag parses as a Link; only the alert's own single hide applies
+    // (no nested link-mark hides, no rk-link color on the tag).
+    expect(hiddenRanges(doc).filter(([f, t]) => f >= 2 && t <= 9)).toEqual([[2, 9]]);
+    expect(classes).not.toContain("rk-link");
+    // Active: the tag text is visible, the colors stay.
+    expect(hiddenRanges(doc, 4)).toEqual([]);
+    expect(markClasses(doc, 4)).toContain("rk-alert-note");
+  });
+
+  it("leaves heading tokens unstyled so line classes own heading looks", () => {
+    // Frontmatter parses as a Setext heading; a heading rule here would tint
+    // the card with --heading on themes where it differs from --text.
+    expect(liveHighlight.style([t.heading])).toBeNull();
+    expect(liveHighlight.style([t.heading1])).toBeNull();
+    // Prose and code tokens are still styled.
+    expect(liveHighlight.style([t.strong])).toEqual(expect.any(String));
+    expect(liveHighlight.style([t.keyword])).toEqual(expect.any(String));
+  });
+
+  it("mounts alerts and fenced code in a real editor", () => {
+    const parent = document.createElement("div");
+    document.body.append(parent);
+    const doc = "> [!TIP]\n> body\n\n```ts\nlet x = 1;\n```\n\nend\n";
+    try {
+      const view = new EditorView({
+        state: EditorState.create({
+          doc,
+          selection: { anchor: doc.length },
+          extensions: [markdownSupport, livePreview("/ws/a.md")],
+        }),
+        parent,
+      });
+      expect(view.dom.querySelector(".rk-alert-tip.rk-alert-title")).not.toBeNull();
+      expect(view.dom.querySelector(".rk-code-first")).not.toBeNull();
+      expect(view.dom.textContent).not.toContain("```");
+      expect(view.dom.textContent).not.toContain("[!TIP]");
+      expect(view.dom.textContent).toContain("let x = 1;");
+      view.destroy();
+    } finally {
+      parent.remove();
+    }
+  });
+
+  it("adds block-spacing classes to paragraphs, lists and items", () => {
+    const doc = "para one\nstill one\n\n- a\n- b\n";
+    const classes = markClasses(doc);
+    expect(classes).toContain("rk-p-first");
+    expect(classes).toContain("rk-p-last");
+    expect(classes).toContain("rk-list-first");
+    expect(classes).toContain("rk-list-last");
+    expect(classes).toContain("rk-li-first");
+    expect(classes).toContain("rk-li-last");
+  });
+
+  it("skips nodes inside ranges handed over to block widgets", () => {
+    const doc = "**a**\n\n| **b** |\n|---|\n| c |\n";
+    const state = stateFor(doc);
+    const tableFrom = doc.indexOf("| **b**");
+    const { decorations } = buildLiveDecorations(state, {
+      from: 0,
+      to: doc.length,
+      composing: false,
+      docPath: "/ws/a.md",
+      skip: [{ from: tableFrom, to: doc.length }],
+    });
+    const touched: [number, number][] = [];
+    decorations.between(0, doc.length, (from, to) => {
+      touched.push([from, to]);
+    });
+    expect(touched.some(([from, to]) => from < doc.length && to > tableFrom)).toBe(false);
+    expect(touched.length).toBeGreaterThan(0);
   });
 
   it("hides link brackets and the URL but not the label", () => {

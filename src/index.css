@@ -1877,32 +1877,126 @@ html.split-resizing * {
 
 /* ── 实时编辑（live preview）──────────────────────────────────────── */
 /* Line classes are scoped to 4 classes so their padding longhands beat the
-   theme's `.rk-live .cm-line` shorthand (`.ͼX.rk-live .cm-line`, 0,3,0). */
-.rk-live .cm-content .cm-line.rk-h1 { font-size: 1.8em; font-weight: 700; color: var(--heading); padding-top: 0.5em; }
-.rk-live .cm-content .cm-line.rk-h2 { font-size: 1.45em; font-weight: 700; color: var(--heading); padding-top: 0.45em; }
-.rk-live .cm-content .cm-line.rk-h3 { font-size: 1.2em; font-weight: 700; color: var(--heading); padding-top: 0.4em; }
+   theme's `.rk-live .cm-line` shorthand (`.ͼX.rk-live .cm-line`, 0,3,0).
+   Sizes/margins mirror resources/md-content.css so both views read alike;
+   md-content.css stays the source of truth for the reading view. */
+.rk-live .cm-content .cm-line.rk-h1 {
+  font-size: 1.9em; font-weight: 650; color: var(--heading);
+  line-height: 1.35; padding-top: 0.55em; padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+.rk-live .cm-content .cm-line.rk-h2 {
+  font-size: 1.5em; font-weight: 650; color: var(--heading);
+  line-height: 1.35; padding-top: 1em; padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--border);
+}
+.rk-live .cm-content .cm-line.rk-h3 {
+  font-size: 1.25em; font-weight: 650; color: var(--heading);
+  line-height: 1.35; padding-top: 0.85em; padding-bottom: 0.15em;
+}
 .rk-live .cm-content .cm-line.rk-h4,
 .rk-live .cm-content .cm-line.rk-h5,
-.rk-live .cm-content .cm-line.rk-h6 { font-weight: 700; color: var(--heading); padding-top: 0.35em; }
+.rk-live .cm-content .cm-line.rk-h6 {
+  font-weight: 650; color: var(--heading); line-height: 1.35;
+  padding-top: 0.65em; padding-bottom: 0.1em;
+}
+
+/* Block spacing: the reading view's p/li/list margins become padding on the
+   first/last line of each block (rk-p-* top-level paragraphs only; list
+   items and quotes space themselves). */
+.rk-live .cm-content .cm-line.rk-p-first { padding-top: 0.4em; }
+.rk-live .cm-content .cm-line.rk-p-last { padding-bottom: 0.4em; }
+.rk-live .cm-content .cm-line.rk-list-first { padding-top: 0.3em; }
+.rk-live .cm-content .cm-line.rk-list-last { padding-bottom: 0.3em; }
+.rk-live .cm-content .cm-line.rk-li-first { padding-top: 0.125em; }
+.rk-live .cm-content .cm-line.rk-li-last { padding-bottom: 0.125em; }
 
 .rk-strong { font-weight: 700; }
 .rk-em { font-style: italic; }
 .rk-strike { text-decoration: line-through; }
-.rk-live .cm-content .rk-inline-code {
+/* Task text: lezer tags the Task node `list`, which the editor's prose
+   highlight paints accent — and CM nests that highlight span *inside* the
+   mark, so the reset has to reach the inner span too. Links / inline code
+   inside the task keep their colors via the more specific rules below. */
+.rk-live .cm-content .rk-task-text { color: var(--text); }
+.rk-live .cm-content .rk-task-text span { color: inherit; }
+.rk-live .cm-content .rk-inline-code,
+.rk-live .cm-content .rk-task-text .rk-inline-code {
   font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.9em;
   background: var(--code-bg);
   color: var(--code-text);
-  border-radius: 4px;
-  padding: 0.1em 0.3em;
+  border-radius: 5px;
+  padding: 0.15em 0.4em;
 }
-.rk-link { color: var(--link); text-decoration: underline; }
+.rk-live .cm-content .rk-link,
+.rk-live .cm-content .rk-task-text .rk-link { color: var(--link); text-decoration: none; }
+.rk-live .cm-content .rk-link:hover { text-decoration: underline; }
 
+/* Blockquote — same face as md-content.css: 4px quote-border, panel fill,
+   rounded right corners, quote text color. */
 .rk-live .cm-content .cm-line.rk-quote {
-  border-left: 3px solid var(--border);
+  border-left: 4px solid var(--quote-border);
   padding-left: 12px;
+  padding-right: 12px;
   color: var(--quote-text);
+  background: var(--panel);
 }
-.rk-live .cm-content .cm-line.rk-code { background: var(--code-bg); color: var(--code-text); }
+.rk-live .cm-content .cm-line.rk-quote-first { border-radius: 0 6px 0 0; padding-top: 0.2em; }
+.rk-live .cm-content .cm-line.rk-quote-last { border-radius: 0 0 6px 0; padding-bottom: 0.2em; }
+
+/* GFM alerts ([!NOTE] …): the tag text is hidden while inactive and the
+   reading view's label/colors take over. Declared after .rk-quote so the
+   border-left-color override wins the cascade. */
+.rk-live .cm-content .cm-line.rk-alert-note { border-left-color: #4c8dff; }
+.rk-live .cm-content .cm-line.rk-alert-tip { border-left-color: #3fbf6f; }
+.rk-live .cm-content .cm-line.rk-alert-important { border-left-color: #a371f7; }
+.rk-live .cm-content .cm-line.rk-alert-warning { border-left-color: #d9a103; }
+.rk-live .cm-content .cm-line.rk-alert-caution { border-left-color: #ef5350; }
+.rk-live .cm-content .cm-line.rk-alert-title::before {
+  font-weight: 700;
+  font-size: 0.92em;
+  margin-right: 0.45em;
+}
+.rk-live .cm-content .cm-line.rk-alert-title.rk-alert-note::before { content: "Note"; color: #4c8dff; }
+.rk-live .cm-content .cm-line.rk-alert-title.rk-alert-tip::before { content: "Tip"; color: #3fbf6f; }
+.rk-live .cm-content .cm-line.rk-alert-title.rk-alert-important::before { content: "Important"; color: #a371f7; }
+.rk-live .cm-content .cm-line.rk-alert-title.rk-alert-warning::before { content: "Warning"; color: #d9a103; }
+.rk-live .cm-content .cm-line.rk-alert-title.rk-alert-caution::before { content: "Caution"; color: #ef5350; }
+
+/* Fenced/indented code: a real code face (pre-bg + border box) instead of a
+   bare background tint; fence lines hide while the block is inactive. Code
+   token colors come from livePreview.ts's HighlightStyle over --syn-*. */
+.rk-live .cm-content .cm-line.rk-code {
+  background: var(--pre-bg);
+  color: var(--code-text);
+  border-left: 1px solid var(--pre-border);
+  border-right: 1px solid var(--pre-border);
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+  font-size: 0.88em;
+  line-height: 1.6;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.rk-live .cm-content .cm-line.rk-code-first {
+  border-top: 1px solid var(--pre-border);
+  border-radius: 8px 8px 0 0;
+  padding-top: 0.6em;
+}
+.rk-live .cm-content .cm-line.rk-code-last {
+  border-bottom: 1px solid var(--pre-border);
+  border-radius: 0 0 8px 8px;
+  padding-bottom: 0.6em;
+}
+/* Hidden fence lines shrink to the pre's padding height so the block keeps
+   the reading view's 14px inset instead of an empty line top and bottom.
+   Declared after rk-code-first/last so its padding wins on those lines. */
+.rk-live .cm-content .cm-line.rk-code-fence {
+  font-size: 0;
+  line-height: 0;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
 
 /* Frontmatter (live): the fences are hidden and the metadata lines are
    painted as one card — same content the reading view shows as a property
@@ -1911,8 +2005,8 @@ html.split-resizing * {
   background: var(--panel);
   border-left: 1px solid var(--border);
   border-right: 1px solid var(--border);
-  padding: 0 12px;
-  font-size: 0.92em;
+  padding: 2px 14px;
+  font-size: 13px;
   line-height: 1.6;
   color: var(--text);
   font-weight: 400;
@@ -1921,12 +2015,12 @@ html.split-resizing * {
 .rk-live .cm-content .cm-line.rk-fm-first {
   border-top: 1px solid var(--border);
   border-radius: 8px 8px 0 0;
-  padding-top: 0.5em;
+  padding-top: 10px;
 }
 .rk-live .cm-content .cm-line.rk-fm-last {
   border-bottom: 1px solid var(--border);
   border-radius: 0 0 8px 8px;
-  padding-bottom: 0.5em;
+  padding-bottom: 10px;
 }
 .rk-live .cm-content .cm-line.rk-fm-delim {
   font-size: 0;
@@ -1950,10 +2044,49 @@ html.split-resizing * {
 }
 .rk-fm-desc { color: var(--muted); font-style: italic; }
 .rk-fm-strong { font-weight: 700; }
-.rk-fm-title { font-size: 1.15em; font-weight: 700; color: var(--heading); }
-.rk-fm-chip { display: inline-block; margin-right: 4px; }
+.rk-fm-title { font-size: 1.35em; font-weight: 700; color: var(--heading); }
+.rk-fm-chip { display: inline-block; margin-right: 6px; }
 
 .rk-bullet { color: var(--accent); padding-right: 0.35em; }
 .rk-task { vertical-align: middle; margin-right: 0.35em; accent-color: var(--accent); }
-.rk-live .cm-content .cm-line.rk-hr-line { border-top: 1px solid var(--border); padding-top: 1.2em; }
-.rk-image { max-width: 100%; border-radius: 6px; display: block; margin: 0.5em 0; }
+.rk-live .cm-content .cm-line.rk-hr-line { border-top: 1px solid var(--border); padding-top: 1.6em; }
+.rk-image {
+  max-width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  border-radius: 6px;
+  display: block;
+  margin: 0.5em 0;
+}
+
+/* Rendered block widgets (liveBlocks.ts): the wrapper carries .md-body so
+   tables/math reuse the reading stylesheet verbatim — including their own
+   1em margins, so the wrappers add none. (Mermaid widgets keep the shared
+   .mermaid-block styles from md-content.css.)
+   .md-body is also the reader's scroll-container selector (layout + the
+   background-image card treatment above); strip that here so a widget is
+   just content inside the editor column. */
+.rk-live .md-body {
+  position: static;
+  width: auto;
+  max-width: none;
+  height: auto;
+  overflow: visible;
+  padding: 0 8px;
+  margin: 0;
+}
+:root.bg-on .rk-live .md-body {
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.rk-live .rk-render-mermaid { margin-left: 8px; margin-right: 8px; }
+.rk-render-math.math-raw {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.92em;
+  padding: 0 0.2em;
+  color: var(--quote-text);
+  background: var(--panel);
+  border-radius: 4px;
+}

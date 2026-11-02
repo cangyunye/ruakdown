@@ -155,8 +155,10 @@ fn math_events(events: Vec<Event>) -> Vec<Event> {
 }
 
 /// HTML for one TeX run; falls back to the escaped literal source when the
-/// converter rejects it, so the reader still sees what was written.
-fn math_html(tex: &str, display: bool) -> String {
+/// converter rejects it, so the reader still sees what was written. Shared by
+/// the reading renderer and the `render_math` command (live view widgets), so
+/// both surfaces emit identical markup.
+pub(crate) fn math_html(tex: &str, display: bool) -> String {
     use latex2mathml::{latex_to_mathml, DisplayStyle};
     let style = if display { DisplayStyle::Block } else { DisplayStyle::Inline };
     let kind = if display { "display" } else { "inline" };
@@ -739,6 +741,17 @@ mod tests {
         assert!(html.contains("math-raw"), "{html}");
         assert!(html.contains("nosuchenv"), "{html}");
         assert!(math_html("x^2", false).contains("<math"));
+    }
+
+    #[test]
+    fn render_math_output_is_the_reader_markup() {
+        // The live view's math widget embeds this HTML verbatim; keep the
+        // same span structure the reading renderer produces.
+        let display = math_html("\\frac{1}{2}", true);
+        assert!(display.starts_with("<span class=\"math math-display\">"), "{display}");
+        assert!(display.contains("display=\"block\""), "{display}");
+        let inline = math_html("x^2", false);
+        assert!(inline.starts_with("<span class=\"math math-inline\">"), "{inline}");
     }
 
     #[test]

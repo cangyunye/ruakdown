@@ -210,6 +210,9 @@ export const api = {
   listThemes: () => invoke<ThemeMeta[]>("list_themes"),
   /** Absolute path of the bundled mermaid.min.js (loaded via asset protocol). */
   mermaidAssetPath: () => invoke<string>("mermaid_asset_path"),
+  /** One TeX run → the same HTML the reading renderer emits. */
+  renderMath: (tex: string, display: boolean) =>
+    invoke<string>("render_math", { tex, display }),
   pickExportPath: (defaultName: string) =>
     invoke<string | null>("pick_export_path", { defaultName }),
   exportHtml: (

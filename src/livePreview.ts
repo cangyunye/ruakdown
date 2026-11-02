@@ -7,9 +7,11 @@ import {
   type ViewUpdate,
   WidgetType,
 } from "@codemirror/view";
-import { syntaxTree } from "@codemirror/language";
+import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { tags as t } from "@lezer/highlight";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { pathDirname } from "./fileOps";
+import { liveBlocksField, renderedBlocks } from "./liveBlocks";
 
 /** Block nodes whose raw Markdown stays visible while the cursor is inside. */
 const REVEAL_NODES = new Set([
@@ -36,6 +38,10 @@ export interface LiveDecorationsOptions {
   to: number;
   composing: boolean;
   docPath: string;
+  /** Ranges currently hidden behind block widgets (liveBlocks.ts); the
+   * inline decorator must not touch them — CM6 rejects replace decorations
+   * nested inside another replace. */
+  skip?: { from: number; to: number }[];
 }
 
 export interface LiveDecorations {
@@ -47,6 +53,9 @@ interface Range {
   from: number;
   to: number;
 }
+
+/** GFM alert tag text (brackets included); parsed by lezer as a Link node. */
+const ALERT_TAG = /^\[!(note|tip|important|warning|caution)\]$/i;
 
 class BulletWidget extends WidgetType {
   eq() {
@@ -227,12 +236,19 @@ export function buildLiveDecorations(
   };
 
   const fm = frontmatterLines(state);
+  const skip = opts.skip ?? [];
+  // Nodes inside a widget-rendered block must not receive any decoration.
+  const skipped = (from: number, to: number) =>
+    skip.some((s) => from < s.to && to > s.from);
 
   syntaxTree(state).iterate({
     from: opts.from,
     to: opts.to,
     enter: (ref) => {
       const n = ref.node;
+      // The Document root spans everything and must keep descending, or a
+      // single skipped range would blank out the whole tree.
+      if (n.name !== "Document" && skipped(n.from, n.to)) return false;
       // Frontmatter is not a lezer node; skip syntax-tree decoration for any
       // node that overlaps it (the card styling is added separately below).
       // The Document root itself must still descend, or every decoration in
@@ -272,6 +288,9 @@ export function buildLiveDecorations(
           paired(n.getChildren("StrikethroughMark"), activeHere, "rk-strike");
           return;
         case "Link": {
+          // A GFM alert tag (`[!NOTE]`) parses as a link; the Blockquote
+          // case owns it, so leave it alone here.
+          if (ALERT_TAG.test(state.doc.sliceString(n.from, n.to))) return false;
           const lm = n.getChildren("LinkMark");
           if (lm.length >= 2) {
             if (!activeHere) {
@@ -297,15 +316,88 @@ export function buildLiveDecorations(
         case "SetextHeading2":
           line(state.doc.lineAt(n.from).from, `rk-h${n.name.slice(-1)}`);
           return;
-        case "Blockquote":
+        case "Blockquote": {
           lines(n.from, n.to, "rk-quote");
+          const first = state.doc.lineAt(n.from);
+          line(first.from, "rk-quote-first");
+          line(
+            state.doc.lineAt(n.to > n.from ? n.to - 1 : n.to).from,
+            "rk-quote-last",
+          );
+          // GFM alert (`> [!NOTE]`): color the quote and label it like the
+          // reading view; the raw tag text hides while the block is inactive.
+          const alert =
+            /^\s{0,3}(?:>\s?)+\[!(note|tip|important|warning|caution)\][^\n]*/i.exec(
+              first.text,
+            );
+          if (alert) {
+            const kind = alert[1].toLowerCase();
+            lines(n.from, n.to, `rk-alert rk-alert-${kind}`);
+            line(first.from, "rk-alert-title");
+            if (!activeHere) {
+              const tagFrom = first.from + alert[0].indexOf("[!");
+              hide(tagFrom, first.from + alert[0].length);
+            }
+          }
           return;
-        case "FencedCode":
+        }
+        case "FencedCode": {
           lines(n.from, n.to, "rk-code");
+          line(n.from, "rk-code-first");
+          line(
+            state.doc.lineAt(n.to > n.from ? n.to - 1 : n.to).from,
+            "rk-code-last",
+          );
+          if (!activeHere) {
+            // The opening fence line (with its info string) and the closing
+            // fence collapse to padding-height, leaving a styled code block;
+            // the cursor entering the block brings the raw fences back.
+            for (const mark of n.getChildren("CodeMark")) {
+              const l = state.doc.lineAt(mark.from);
+              hide(l.from, l.to);
+              line(l.from, "rk-code-fence");
+            }
+          }
           return false;
-        case "CodeBlock":
+        }
+        case "CodeBlock": {
           lines(n.from, n.to, "rk-code");
+          line(n.from, "rk-code-first");
+          line(
+            state.doc.lineAt(n.to > n.from ? n.to - 1 : n.to).from,
+            "rk-code-last",
+          );
           return false;
+        }
+        // Spacing-only line classes so block gaps match the reading view's
+        // margins; these nodes must keep descending (inline marks live
+        // inside them), so no early `return false`.
+        case "Paragraph":
+          if (n.parent?.name === "Document") {
+            line(n.from, "rk-p-first");
+            line(
+              state.doc.lineAt(n.to > n.from ? n.to - 1 : n.to).from,
+              "rk-p-last",
+            );
+          }
+          return;
+        case "ListItem":
+          line(n.from, "rk-li-first");
+          line(
+            state.doc.lineAt(n.to > n.from ? n.to - 1 : n.to).from,
+            "rk-li-last",
+          );
+          return;
+        case "BulletList":
+        case "OrderedList":
+          if (n.parent?.name === "Document") {
+            line(n.from, "rk-list-first");
+            line(
+              state.doc.lineAt(n.to > n.from ? n.to - 1 : n.to).from,
+              "rk-list-last",
+            );
+          }
+          return;
         case "ListMark": {
           if (!activeHere && n.parent?.parent?.name === "BulletList") {
             const task = n.parent?.getChild("Task");
@@ -326,6 +418,11 @@ export function buildLiveDecorations(
               .includes("x");
             widget(n.from, n.to, new TaskWidget(checked, n.from, n.to));
           }
+          // lezer tags the whole Task as `list`, which the editor's prose
+          // highlight paints in the accent color; the reading view shows
+          // task text in the normal text color.
+          const task = n.parent;
+          if (task && task.to > n.to) mark(n.to, task.to, "rk-task-text");
           return false;
         }
         case "Image": {
@@ -451,6 +548,43 @@ export function buildLiveDecorations(
 
 const ABSOLUTE_SRC = /^(?:https?:|data:|#|asset:)/i;
 
+/** The live view's complete highlight style. SourceEditor swaps its base
+ * prose highlight out for this one in live mode (same compartment), because
+ * CM mounts style modules so that the *earlier* extension's rules win on
+ * equal specificity — a later `inherit` could never override the base.
+ *
+ * Prose tags mirror SourceEditor's base style minus `heading`: in the live
+ * view the `rk-h*` line classes own heading color and weight. An inner span
+ * painted `--heading` would also tint frontmatter, whose closing `---`
+ * makes lezer parse the metadata as a Setext heading, on every theme whose
+ * heading color differs from the text color.
+ *
+ * Code tokens key to the same `--syn-*` palette the Rust highlighter feeds,
+ * so a highlighted fence matches its reading-view rendering. */
+export const liveHighlight = HighlightStyle.define([
+  { tag: t.strong, fontWeight: "700" },
+  { tag: t.emphasis, fontStyle: "italic" },
+  { tag: t.strikethrough, textDecoration: "line-through" },
+  { tag: t.link, color: "var(--link)" },
+  { tag: t.url, color: "var(--muted)" },
+  { tag: t.monospace, color: "var(--code-text)" },
+  { tag: t.quote, color: "var(--quote-text)" },
+  { tag: t.list, color: "var(--accent)" },
+  { tag: t.processingInstruction, color: "var(--accent)" },
+  { tag: t.keyword, color: "var(--syn-keyword)" },
+  { tag: t.string, color: "var(--syn-string)" },
+  { tag: t.comment, color: "var(--syn-comment)", fontStyle: "italic" },
+  { tag: t.number, color: "var(--syn-number)" },
+  { tag: [t.bool, t.null], color: "var(--syn-const)" },
+  { tag: [t.typeName, t.className], color: "var(--syn-type)" },
+  {
+    tag: [t.function(t.variableName), t.function(t.propertyName)],
+    color: "var(--syn-function)",
+  },
+  { tag: t.tagName, color: "var(--syn-tag)" },
+  { tag: t.attributeName, color: "var(--syn-attr)" },
+]);
+
 /** Resolve a Markdown image src to an absolute local path, following the same
  * shape as core/markdown.rs::resolve_img_path but clamping `..` at the root.
  * Returns null for remote/data/anchor references and when the document has no
@@ -556,6 +690,10 @@ export function livePreview(docPath: string): Extension {
     EditorView.atomicRanges.of(
       (view) => view.plugin(plugin)?.atomic ?? Decoration.none,
     ),
+    // Block widgets (tables / mermaid / display math) come from this
+    // StateField; the inline plugin above skips their ranges.
+    liveBlocksField,
+    syntaxHighlighting(liveHighlight),
     EditorView.editorAttributes.of({ class: "rk-live" }),
     liveTheme,
   ];
@@ -568,6 +706,7 @@ function build(view: EditorView, docPath: string): LiveDecorations {
     to: ranges[ranges.length - 1]?.to ?? view.state.doc.length,
     composing: view.composing,
     docPath,
+    skip: renderedBlocks(view.state),
   });
 }
 

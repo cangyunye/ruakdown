@@ -346,9 +346,13 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
               return true;
             },
           }),
-          syntaxHighlighting(highlightStyle),
           editorTheme,
-          liveCompartment.current.of(live ? livePreview(docPath) : []),
+          // The prose highlight and the live extension are mutually
+          // exclusive: live brings its own highlight style (livePreview.ts
+          // explains why it cannot simply override this one).
+          liveCompartment.current.of(
+            live ? livePreview(docPath) : syntaxHighlighting(highlightStyle),
+          ),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               const value = update.state.doc.toString();
@@ -423,7 +427,7 @@ const SourceEditor = forwardRef<SourceEditorHandle, Props>(function SourceEditor
     if (!view) return;
     view.dispatch({
       effects: liveCompartment.current.reconfigure(
-        live ? livePreview(docPath) : [],
+        live ? livePreview(docPath) : syntaxHighlighting(highlightStyle),
       ),
     });
   }, [live, docPath]);

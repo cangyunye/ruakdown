@@ -66,12 +66,9 @@ function cacheKey(source: string, theme: string): string {
   return `${theme}:${(h >>> 0).toString(36)}`;
 }
 
-/**
- * Render every ```mermaid code block inside `root` into an SVG.
- * The <pre> stays in the DOM (hidden) as the source of truth so blocks can be
- * re-rendered when the theme changes; stale containers are removed first.
- */
-export async function renderMermaidBlocks(root: HTMLElement, dark: boolean) {
+/** Render one mermaid source to an SVG string (cached), or throw. Shared by
+ * the reading view's block scan and the live view's mermaid widget. */
+export async function mermaidSvg(source: string, dark: boolean): Promise<string> {
   const theme = dark ? "dark" : "default";
   const mermaid = await loadMermaid();
   if (initedTheme !== theme) {
@@ -83,7 +80,26 @@ export async function renderMermaidBlocks(root: HTMLElement, dark: boolean) {
     });
     initedTheme = theme;
   }
+  const key = cacheKey(source, theme);
+  const cached = svgCache.get(key);
+  if (cached) return cached;
 
+  const id = `mermaid-svg-${Date.now()}-${renderSeq++}`;
+  const { svg } = await mermaid.render(id, source);
+  if (svgCache.size >= CACHE_CAP) {
+    const oldest = svgCache.keys().next().value;
+    if (oldest !== undefined) svgCache.delete(oldest);
+  }
+  svgCache.set(key, svg);
+  return svg;
+}
+
+/**
+ * Render every ```mermaid code block inside `root` into an SVG.
+ * The <pre> stays in the DOM (hidden) as the source of truth so blocks can be
+ * re-rendered when the theme changes; stale containers are removed first.
+ */
+export async function renderMermaidBlocks(root: HTMLElement, dark: boolean) {
   root.querySelectorAll(".mermaid-block").forEach((el) => el.remove());
 
   const codes = root.querySelectorAll<HTMLElement>("pre > code.language-mermaid");
@@ -95,24 +111,9 @@ export async function renderMermaidBlocks(root: HTMLElement, dark: boolean) {
     container.className = "mermaid-block";
     pre.after(container);
 
-    const key = cacheKey(source, theme);
-    const cached = svgCache.get(key);
-    if (cached) {
-      container.innerHTML = cached;
-      pre.hidden = true;
-      continue;
-    }
-
-    const id = `mermaid-svg-${Date.now()}-${renderSeq++}`;
     try {
-      const { svg } = await mermaid.render(id, source);
-      container.innerHTML = svg;
+      container.innerHTML = await mermaidSvg(source, dark);
       pre.hidden = true;
-      if (svgCache.size >= CACHE_CAP) {
-        const oldest = svgCache.keys().next().value;
-        if (oldest !== undefined) svgCache.delete(oldest);
-      }
-      svgCache.set(key, svg);
     } catch (err) {
       container.innerHTML = "";
       const box = document.createElement("pre");

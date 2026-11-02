@@ -1,6 +1,12 @@
 # dts 问题档案索引
 
-共 16 条 · 未解决 0 · 已解决 16 · 更新于 2026-10-31T23:59:00+08:00
+共 17 条 · 未解决 0 · 已解决 17 · 更新于 2026-11-02T13:41:24+08:00
+
+## feat-live-render
+
+| id | 日期 | 摘要 | 状态 |
+|----|------|------|------|
+| [feat-live-render_blocks-and-reading-parity](feat-live-render_blocks-and-reading-parity/dts.md) | 2026-11-02 | 实时视图未复用阅读模式渲染：表格 / 代码围栏 / 公式 / Mermaid 以源码呈现，标题、引用、代码块样式与阅读不一致，frontmatter 在非默认主题下被标题色染色 | resolved |
 
 ## fix-live-frontmatter
 
