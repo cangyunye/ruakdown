@@ -164,18 +164,48 @@ function encodeHrefSegment(seg: string): string {
   return seg.replace(HREF_BAD, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0"));
 }
 
+/** Root of an absolute path for href building: a Windows drive ("C:"),
+ * a UNC host+share ("//server/share"), POSIX "/" (also covers a rooted
+ * Windows path like "\docs"), or "" when the path is not absolute.
+ * Comparing roots — not first path segments — is what keeps POSIX links
+ * correct: `/Users/…` and `/Volumes/…` share the root `/` and are one tree,
+ * so a plain `../` climb reaches across "volumes"; only differing drives
+ * or hosts need an absolute fallback. */
+function splitPathRoot(p: string): { root: string; rest: string } {
+  const drive = /^[A-Za-z]:/.exec(p);
+  if (drive) return { root: drive[0], rest: p.slice(2) };
+  const unc = /^(?:\/\/|\\\\)[^\\/]+[\\/][^\\/]+/.exec(p);
+  if (unc) return { root: unc[0].replace(/\\/g, "/"), rest: p.slice(unc[0].length) };
+  if (p.startsWith("/") || p.startsWith("\\")) return { root: "/", rest: p.slice(1) };
+  return { root: "", rest: p };
+}
+
 /** Markdown href from `fromFile`'s directory to `toPath`: forward slashes,
- * `./`-prefixed when no `..` climb is needed, segment-encoded. Falls back
- * to an absolute forward-slash path across drives. */
+ * `./`-prefixed when no `..` climb is needed, segment-encoded. Within one
+ * root the href is relative (`../` climbs); across roots (another Windows
+ * drive, another UNC share) it falls back to an absolute forward-slash path
+ * that carries the target's own root — a bare parts-join would drop POSIX's
+ * leading `/` and turn `/Volumes/X/b.md` into a broken relative link. */
 export function relativeLinkHref(fromFile: string, toPath: string): string {
-  const fromParts = pathDirname(fromFile).split(SEPS).filter(Boolean);
-  const toParts = toPath.split(SEPS).filter(Boolean);
-  if (
-    fromParts.length === 0 ||
-    toParts.length === 0 ||
-    fromParts[0].toLowerCase() !== toParts[0].toLowerCase()
-  ) {
+  const from = splitPathRoot(pathDirname(fromFile));
+  const to = splitPathRoot(toPath);
+  const fromParts = from.rest.split(SEPS).filter(Boolean);
+  const toParts = to.rest.split(SEPS).filter(Boolean);
+  const sameRoot =
+    from.root !== "" &&
+    to.root !== "" &&
+    from.root.toLowerCase() === to.root.toLowerCase();
+  if (!sameRoot) {
+    if (to.root) {
+      const rest = toParts.map(encodeHrefSegment).join("/");
+      return to.root === "/" ? `/${rest}` : `${to.root}/${rest}`;
+    }
+    // Non-absolute target: nothing to anchor, hand the segments on as-is.
     return toParts.map(encodeHrefSegment).join("/") || toPath;
+  }
+  if (toParts.length === 0) {
+    // Root-only target ("/", "C:/"): no relative form to express.
+    return to.root === "/" ? "/" : `${to.root}/`;
   }
   let k = 0;
   while (

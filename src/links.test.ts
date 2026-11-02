@@ -90,6 +90,31 @@ describe("openMarkdownLink routing (classifyLink)", () => {
     }
   });
 
+  it("hands file:// URLs to Rust intact, with only the fragment split off", async () => {
+    // Pre-stripping the scheme here used to turn `file:///C:/doc.md` into
+    // `/C:/doc.md`, which Windows reads as a `C:` folder on the current
+    // drive; the scheme (and a `localhost` host) are Rust's to interpret.
+    mockedResolve.mockResolvedValue({
+      path: "C:\\doc.md",
+      exists: true,
+      inRoot: false,
+      isMarkdown: true,
+    });
+    await openMarkdownLink("file:///C:/doc.md#sec", {
+      currentFile: "C:\\notes\\a.md",
+      root: null,
+      openFile: vi.fn(),
+      notify: vi.fn(),
+    });
+    expect(mockedResolve).toHaveBeenCalledWith("C:\\notes\\a.md", "file:///C:/doc.md", null);
+    await openMarkdownLink("file://localhost/C:/doc.md", ctx());
+    expect(mockedResolve).toHaveBeenLastCalledWith(
+      "/proj/a.md",
+      "file://localhost/C:/doc.md",
+      "/proj",
+    );
+  });
+
   it("does nothing for empty or missing hrefs", async () => {
     await openMarkdownLink("", ctx());
     expect(mockedOpenUrl).not.toHaveBeenCalled();

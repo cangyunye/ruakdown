@@ -33,7 +33,8 @@ export function linkAtLine(lineText: string, col: number): string | null {
 export interface OpenLinkCtx {
   /** Path of the currently open document (relative links resolve against it). */
   currentFile: string | null;
-  /** Opened project folder; only feeds the informational in-root flag. */
+  /** Opened project folder: feeds the in-root flag and is the first
+   * fallback base for rooted links (`/docs/x.md`) that miss on disk. */
   root: string | null;
   openFile: (path: string) => Promise<void>;
   /** Show a transient banner message. */
@@ -65,9 +66,10 @@ export async function openMarkdownLink(
     scrollToAnchor(decodeSafe(href.trim().slice(1)), ctx);
     return;
   }
-  // Local target: strip file:// and any trailing #fragment.
+  // Local target: split off any trailing #fragment. Scheme stripping
+  // (`file:///C:/…`, `file://localhost/…`) and decoding stay in Rust so a
+  // partially stripped URL never reaches it as a bogus relative path.
   let target = href.trim();
-  if (target.toLowerCase().startsWith("file://")) target = target.slice(7);
   const hashIdx = target.indexOf("#");
   const fragment = hashIdx >= 0 ? decodeSafe(target.slice(hashIdx + 1)) : null;
   if (hashIdx >= 0) target = target.slice(0, hashIdx);

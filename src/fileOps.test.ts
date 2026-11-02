@@ -186,6 +186,27 @@ describe("relativeLinkHref", () => {
     expect(relativeLinkHref("F:\\v\\d.md", "C:\\other\\x.png")).toBe("C:/other/x.png");
   });
 
+  it("treats POSIX paths as one tree: relative climbs survive top-level changes", () => {
+    // Regression: first-segment comparison ("Users" vs "Volumes") used to
+    // take the absolute fallback, whose parts-join dropped the leading "/"
+    // — the href came out "Volumes/X/b.md" and never resolved.
+    expect(relativeLinkHref("/Users/me/doc.md", "/Users/me/notes/b.md")).toBe("./notes/b.md");
+    expect(relativeLinkHref("/Users/me/doc.md", "/Volumes/X/b.md")).toBe("../../Volumes/X/b.md");
+    // dirname /Users/me/a/b is 4 segments deep; climbing to / takes 4 ups.
+    expect(relativeLinkHref("/Users/me/a/b/doc.md", "/x.md")).toBe("../../../../x.md");
+    expect(relativeLinkHref("/Users/me/doc.md", "/Users/other/b.md")).toBe("../other/b.md");
+  });
+
+  it("keeps the target's own root when roots genuinely differ", () => {
+    // Windows drive case is covered above ("C:/other/x.png"); a UNC target
+    // from a local document must keep host+share, POSIX keeps its slash.
+    expect(relativeLinkHref("/Users/me/d.md", "\\\\srv\\share\\docs\\b.md")).toBe(
+      "//srv/share/docs/b.md",
+    );
+    expect(relativeLinkHref("notes/a.md", "/abs/x.png")).toBe("/abs/x.png");
+    expect(relativeLinkHref("/Users/me/d.md", "b.md")).toBe("b.md");
+  });
+
   it("builds markdown tags", () => {
     expect(mdImageTag("img", "./assets/a.jpg")).toBe("![img](./assets/a.jpg)");
     expect(mdLinkTag("指南", "./sub/guide.md")).toBe("[指南](./sub/guide.md)");
