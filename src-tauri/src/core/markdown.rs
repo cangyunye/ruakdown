@@ -29,9 +29,12 @@ pub(crate) fn md_options() -> Options {
     opts.insert(Options::ENABLE_TABLES);
     opts.insert(Options::ENABLE_STRIKETHROUGH);
     opts.insert(Options::ENABLE_TASKLISTS);
-    // Frontmatter: parsed (and silenced by push_html), surfaced as a property
-    // card by `frontmatter::card_html`.
-    opts.insert(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS);
+    // Frontmatter is NOT parsed here: pulldown's metadata-block option would
+    // swallow every `---…---` run in the document (not just a doc-initial
+    // one) into a silenced block. `frontmatter::split_initial` lifts the
+    // doc-initial block off the source instead; the body must then parse with
+    // plain CommonMark semantics so mid-document `---` pairs stay thematic
+    // breaks with their content intact.
     // GitHub alert blockquotes ([!NOTE] …): rendered as classed blockquotes,
     // styled and titled by md-content.css.
     opts.insert(Options::ENABLE_GFM);
@@ -50,9 +53,16 @@ pub fn render_markdown(source: &str) -> RenderedDoc {
     let mut slugger = HeadingSlugger::default();
     let mut current: Option<(u8, String)> = None;
 
+    // Only a document-initial block becomes the property card; the body is
+    // then parsed without metadata semantics (see md_options).
+    let (frontmatter_card, body) = match frontmatter::split_initial(source) {
+        Some(split) => (frontmatter::card_html(split.meta), split.body),
+        None => (String::new(), source),
+    };
+
     // Single parse pass: collect outline items and the event stream together.
     let mut events: Vec<Event> = Vec::new();
-    for event in Parser::new_ext(source, md_options()) {
+    for event in Parser::new_ext(body, md_options()) {
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
                 current = Some((level as u8, String::new()));
@@ -78,10 +88,6 @@ pub fn render_markdown(source: &str) -> RenderedDoc {
         }
         events.push(event);
     }
-
-    let frontmatter_card = frontmatter::metadata_text(&events)
-        .map(|raw| frontmatter::card_html(&raw))
-        .unwrap_or_default();
 
     let mut html_out = String::with_capacity(source.len() * 2);
     html::push_html(&mut html_out, post_process_events(events).into_iter());
@@ -675,6 +681,37 @@ mod tests {
         let plain = render_markdown("# A\n\ntext\n\n---\n\nmore\n");
         assert!(plain.html.contains("<hr"));
         assert!(!plain.html.contains("md-frontmatter"));
+    }
+
+    /// A `---…---` run in the middle of the document — even one whose inner
+    /// shape matches metadata syntax exactly — is the author's divider plus
+    /// content: it must render in the body and never surface in the header
+    /// card (pulldown would swallow it as a metadata block). The opening
+    /// fence stays a thematic break; a closing fence hugging a paragraph is
+    /// its setext underline, exactly as plain CommonMark renders it.
+    #[test]
+    fn mid_document_dash_run_stays_body_content() {
+        let doc = render_markdown(
+            "# 标题\n\n正文第一段。\n\n---\n设置: 打开\n备注: 测试\n---\n\n第二节内容。\n",
+        );
+        assert!(!doc.html.contains("md-frontmatter"), "{}", doc.html);
+        assert!(doc.html.contains("设置: 打开"), "{}", doc.html);
+        assert!(doc.html.contains("备注: 测试"), "{}", doc.html);
+        assert!(doc.html.contains("<p>第二节内容。</p>"), "{}", doc.html);
+        assert_eq!(doc.html.matches("<hr />").count(), 1, "{}", doc.html);
+        assert!(doc.html.contains("<h2"), "{}", doc.html);
+
+        // Same when a real frontmatter block exists above it: only that one
+        // becomes the card.
+        let both = render_markdown(
+            "---\ntitle: 真头部\n---\n\n---\n设置: 打开\n---\n\n正文。\n",
+        );
+        let card_end = both.html.find("</div>\n").expect("frontmatter card div");
+        let card = &both.html[..card_end];
+        assert!(card.contains(">title</span>"), "{}", both.html);
+        assert!(!card.contains("设置"), "{}", card);
+        assert!(both.html.contains("<h2"), "{}", both.html);
+        assert!(both.html.contains("设置: 打开"), "{}", both.html);
     }
 
     #[test]

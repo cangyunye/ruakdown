@@ -7,26 +7,105 @@
 //! maps render one item per line; everything else keeps the plain key-value
 //! look.
 
-use pulldown_cmark::{Event, Tag, TagEnd};
-
 use crate::core::markdown::escape_html;
 
-/// Raw metadata text carried by a metadata-block event run, if one is present.
-pub(crate) fn metadata_text(events: &[Event]) -> Option<String> {
-    let mut in_block = false;
-    let mut raw = String::new();
-    for event in events {
-        match event {
-            Event::Start(Tag::MetadataBlock(_)) => in_block = true,
-            Event::End(TagEnd::MetadataBlock(_)) => in_block = false,
-            Event::Text(t) if in_block => raw.push_str(t),
-            _ => {}
+/// A frontmatter block split off the top of the document.
+pub(crate) struct FrontmatterSplit<'a> {
+    /// Raw text between the fences, line endings included.
+    pub meta: &'a str,
+    /// Everything after the closing fence line; always a suffix of the input.
+    pub body: &'a str,
+}
+
+/// Split a metadata block off the very top of the document, mirroring
+/// pulldown-cmark's YAML-style scan: optional leading blank lines, then a
+/// column-0 line of exactly three `-` (trailing whitespace only) whose first
+/// following line is non-blank, closed by a column-0 line of exactly `---` or
+/// `...` (trailing spaces only). Only a document-initial block counts; a
+/// `---…---` run in the middle of the document is the author's divider plus
+/// content and must render as such, not disappear into the property card.
+pub(crate) fn split_initial(source: &str) -> Option<FrontmatterSplit<'_>> {
+    let bytes = source.as_bytes();
+    let mut pos = 0usize;
+    // Leading blank lines pass through before the scan sees the opener.
+    loop {
+        let (start, end) = line_at(bytes, pos)?;
+        if is_blank(&bytes[start..end]) {
+            pos = end;
+        } else {
+            break;
         }
     }
-    if raw.is_empty() {
-        None
+    let (opener_start, opener_end) = line_at(bytes, pos)?;
+    if opener_field(&bytes[opener_start..opener_end], b'-') != Some(3) {
+        return None;
+    }
+    let meta_start = opener_end;
+    let mut first = true;
+    let mut cursor = meta_start;
+    loop {
+        let (start, end) = line_at(bytes, cursor)?;
+        let line = &bytes[start..end];
+        let closed = opener_field(line, b'-') == Some(3) || opener_field(line, b'.') == Some(3);
+        if first {
+            // The first line inside the fences can neither be blank nor the
+            // closing fence itself, or pulldown would not see a block either.
+            if closed || is_blank(line) {
+                return None;
+            }
+            first = false;
+        }
+        cursor = end;
+        if closed {
+            return Some(FrontmatterSplit {
+                meta: &source[meta_start..start],
+                body: &source[end..],
+            });
+        }
+    }
+}
+
+/// Byte range of the line starting at `pos`, line ending included; None at EOF.
+fn line_at(bytes: &[u8], pos: usize) -> Option<(usize, usize)> {
+    if pos >= bytes.len() {
+        return None;
+    }
+    let end = bytes[pos..]
+        .iter()
+        .position(|&b| b == b'\n')
+        .map_or(bytes.len(), |i| pos + i + 1);
+    Some((pos, end))
+}
+
+/// A blank line: nothing but spaces and tabs before the line ending.
+fn is_blank(line: &[u8]) -> bool {
+    line.iter()
+        .take_while(|&&b| b != b'\n')
+        .all(|&b| b == b' ' || b == b'\t' || b == b'\r')
+}
+
+/// Count leading runs of `ch` on the line when the remainder is fenced-line
+/// shaped: exactly 3 runs, then spaces/tabs only up to the line ending (the
+/// closing fence allows trailing spaces only — tabs would fail pulldown's
+/// scan — and `\r` before the `\n` folds into that check).
+fn opener_field(line: &[u8], ch: u8) -> Option<usize> {
+    let mut i = 0usize;
+    while i < line.len() && line[i] == ch {
+        i += 1;
+    }
+    if i != 3 {
+        return None;
+    }
+    let rest = &line[i..];
+    let body = match rest.iter().position(|&b| b == b'\n') {
+        Some(j) => &rest[..j],
+        None => rest,
+    };
+    let body = body.strip_suffix(b"\r").unwrap_or(body);
+    if body.iter().all(|&b| b == b' ' || b == b'\t') {
+        Some(i)
     } else {
-        Some(raw)
+        None
     }
 }
 
@@ -436,6 +515,67 @@ fn scalar_value(val: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// split_initial accepted: (meta text, body text).
+    fn split(src: &str) -> Option<(&str, &str)> {
+        split_initial(src).map(|s| (s.meta, s.body))
+    }
+
+    #[test]
+    fn split_lifts_only_a_document_initial_block() {
+        // The common shape.
+        assert_eq!(
+            split("---\ntitle: x\ntags: a\n---\n\nbody\n"),
+            Some(("title: x\ntags: a\n", "\nbody\n"))
+        );
+        // Leading blank lines pass through before the opener.
+        assert_eq!(split("\n\n---\nk: v\n---\nrest\n"), Some(("k: v\n", "rest\n")));
+        // Trailing whitespace on either fence; `...` also closes.
+        assert_eq!(split("--- \nk: v\n---\nrest"), Some(("k: v\n", "rest")));
+        assert_eq!(split("---\nk: v\n...\nrest"), Some(("k: v\n", "rest")));
+        // A blank line after the first content line stays inside the block.
+        assert_eq!(split("---\na: 1\n\nb: 2\n---\nrest"), Some(("a: 1\n\nb: 2\n", "rest")));
+        // Close at EOF without a trailing newline.
+        assert_eq!(split("---\nk: v\n---"), Some(("k: v\n", "")));
+    }
+
+    #[test]
+    fn split_rejects_non_frontmatter_shapes() {
+        // A blank line right after the opener: thematic break, not metadata.
+        assert_eq!(split("---\n\ntitle: x\n---\n"), None);
+        // Indented opener (a list continuation / code block, never metadata).
+        assert_eq!(split(" ---\nk: v\n---\n"), None);
+        // Any fence longer than three dashes.
+        assert_eq!(split("----\nk: v\n----\n"), None);
+        assert_eq!(split("---\nk: v\n----\n"), None);
+        // No closing fence at all.
+        assert_eq!(split("---\nk: v\n"), None);
+        // Empty document.
+        assert_eq!(split(""), None);
+        assert_eq!(split("\n\n"), None);
+    }
+
+    #[test]
+    fn split_ignores_mid_document_runs() {
+        // The motivating case: a `---…---` run after body content is a
+        // divider plus content, never frontmatter — even though its shape
+        // matches the metadata syntax exactly.
+        let doc = "# 标题\n\n正文。\n\n---\n设置: 打开\n备注: 测试\n---\n\n第二节。\n";
+        assert_eq!(split(doc), None);
+        // Blank lines around the fences change nothing.
+        let doc = "一段。\n\n---\n\n中间内容\n\n---\n\n二段。\n";
+        assert_eq!(split(doc), None);
+    }
+
+    #[test]
+    fn split_body_is_always_a_suffix_starting_after_the_closer() {
+        let src = "---\ntitle: x\n---\n# Head\n";
+        let s = split_initial(src).unwrap();
+        assert!(src.ends_with(s.body));
+        assert_eq!(s.body, "# Head\n");
+        // The metadata text feeds card_html unchanged.
+        assert!(card_html(s.meta).contains("fm-title"));
+    }
 
     #[test]
     fn references_render_as_links_in_every_shape() {

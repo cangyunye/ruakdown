@@ -327,18 +327,12 @@ fn finish_block(events: Vec<Event<'_>>, heading_counter: &mut usize) -> RawBlock
         }
     }
 
-    // A metadata block's events render to nothing via push_html; its raw text
-    // becomes the frontmatter property card so chunk concatenation stays
-    // byte-identical with the full-document render.
-    let html = if matches!(events.first(), Some(Event::Start(Tag::MetadataBlock(_)))) {
-        frontmatter::metadata_text(&events)
-            .map(|raw| frontmatter::card_html(&raw))
-            .unwrap_or_default()
-    } else {
-        let mut buf = String::with_capacity(events.len() * 24);
-        html::push_html(&mut buf, post_process_events(events).into_iter());
-        buf
-    };
+    // The source handed to build_blocks never contains frontmatter (the
+    // assembler splits it off first), so no metadata-block handling is needed
+    // here and every block renders through the shared pipeline.
+    let mut buf = String::with_capacity(events.len() * 24);
+    html::push_html(&mut buf, post_process_events(events).into_iter());
+    let html = buf;
     let tags = count_tags(&html);
 
     // Heading ids are NOT allocated here: id dedup needs every earlier
@@ -574,7 +568,35 @@ fn assemble(
     imgs: &mut Option<&mut ImgResolver>,
 ) -> CachedDoc {
     let mut fresh = if collect_reuse { Some(BlockReuseMap::default()) } else { None };
-    let raw_blocks = build_blocks(source, prev, &mut fresh, imgs);
+    // Frontmatter is lifted off the source before block splitting (see
+    // markdown::render_markdown) and re-enters as a synthetic first block so
+    // chunk concatenation stays byte-identical with the full render and the
+    // card's source range still maps onto the frontmatter lines.
+    let (card, parse_source) = match frontmatter::split_initial(source) {
+        Some(split) => (frontmatter::card_html(split.meta), split.body),
+        None => (String::new(), source),
+    };
+    let body_offset = source.len() - parse_source.len();
+    let mut raw_blocks = build_blocks(parse_source, prev, &mut fresh, imgs);
+    for block in &mut raw_blocks {
+        block.src_start += body_offset;
+        block.src_end += body_offset;
+    }
+    if !card.is_empty() || body_offset > 0 {
+        raw_blocks.insert(
+            0,
+            RawBlock {
+                tags: count_tags(&card),
+                html: card,
+                mermaid: false,
+                kind: BlockKind::Other,
+                heading: None,
+                img_heights: Vec::new(),
+                src_start: 0,
+                src_end: body_offset,
+            },
+        );
+    }
     let lines = source_line_ranges(source, &raw_blocks);
 
     let mut chunks: Vec<Chunk> = Vec::new();
@@ -734,6 +756,28 @@ mod tests {
         let joined = strip_data_bi(&concat_chunks(&doc));
         let full = render_markdown(&source).html;
         assert_eq!(joined, full, "frontmatter card must render identically in both paths");
+    }
+
+    /// A mid-document `---…---` run renders as divider-plus-content in the
+    /// chunked path too — never as a card — and the card of a real
+    /// frontmatter block still maps onto the frontmatter's source lines.
+    #[test]
+    fn mid_document_dash_run_stays_content_in_chunks() {
+        let source = format!(
+            "---\ntitle: 真头部\n---\n\n---\n设置: 打开\n---\n\n{}",
+            TEMPLATE.repeat(50)
+        );
+        let doc = build(&source);
+        let joined = strip_data_bi(&concat_chunks(&doc));
+        let full = render_markdown(&source).html;
+        assert_eq!(joined, full, "chunk concatenation must equal full render");
+        assert_eq!(joined.matches("md-frontmatter").count(), 1, "{}", joined);
+        assert!(joined.contains("设置: 打开"), "{}", joined);
+        // The card block's source range covers exactly the frontmatter lines;
+        // the next block is the divider on the body's first `---` line.
+        let card = &doc.blocks[0];
+        assert_eq!((card.start_line, card.end_line), (1, 3), "{card:?}");
+        assert_eq!(doc.blocks[1].start_line, 5);
     }
 
     #[test]

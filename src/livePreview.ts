@@ -459,9 +459,18 @@ export function buildLiveDecorations(
     },
   });
 
+  // The card yields to raw text only while a selection actually sits inside
+  // the block. Selection ranges are checked directly, not through the
+  // reveal-expanded `active` union: an empty range at the document start —
+  // where every freshly opened file's cursor rests — touches nothing, so the
+  // card renders on first open instead of staying raw until the cursor moves.
+  // Any collapsed cursor beyond position 0 (or a selection crossing into the
+  // block) still intersects and reveals the raw YAML for editing.
+  const fmEditing =
+    fm && state.selection.ranges.some((r) => intersects(fm, r));
   if (
     fm &&
-    !intersects(fm, active) &&
+    !fmEditing &&
     intersects(fm, { from: opts.from, to: opts.to })
   ) {
     const first = state.doc.lineAt(fm.from);

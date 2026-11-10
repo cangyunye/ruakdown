@@ -522,6 +522,47 @@ describe("block widgets", () => {
     expect(hidden).not.toContainEqual([0, 3]);
   });
 
+  // A freshly opened file rests its cursor at position 0, before the opening
+  // fence — that is not "editing the frontmatter", so the card must render
+  // right away instead of staying raw until the cursor moves into the body.
+  it("renders the frontmatter card when the cursor rests at position 0", () => {
+    const doc = "---\ntitle: x\n---\n\nbody\n";
+    const state = stateFor(doc, 0);
+    const { decorations } = buildLiveDecorations(state, {
+      from: 0,
+      to: doc.length,
+      composing: false,
+      docPath: "/ws/a.md",
+    });
+    const classes: string[] = [];
+    decorations.between(0, doc.length, (_f, _t, value) => {
+      if (typeof value.spec.class === "string") classes.push(...value.spec.class.split(" "));
+    });
+    expect(classes).toContain("rk-fm-line");
+    expect(classes).toContain("rk-fm-delim");
+  });
+
+  it("keeps frontmatter raw when a selection crosses into it", () => {
+    const doc = "---\ntitle: x\n---\n\nbody\n";
+    const state = stateFor(doc, 0);
+    // Anchor at 0 with the head inside the block: the user is selecting the
+    // YAML, so the raw text stays visible.
+    const selecting = state.update({
+      selection: { anchor: 0, head: 6 },
+    }).state;
+    const { decorations } = buildLiveDecorations(selecting, {
+      from: 0,
+      to: doc.length,
+      composing: false,
+      docPath: "/ws/a.md",
+    });
+    const classes: string[] = [];
+    decorations.between(0, doc.length, (_f, _t, value) => {
+      if (typeof value.spec.class === "string") classes.push(...value.spec.class.split(" "));
+    });
+    expect(classes).not.toContain("rk-fm-line");
+  });
+
   it("clamps frontmatter card classes to the visible range", () => {
     const doc = "---\ntitle: x\n---\n\nbody\n";
     const from = doc.indexOf("body");
