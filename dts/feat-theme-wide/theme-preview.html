@@ -1,0 +1,202 @@
+<!doctype html>
+<!-- 主题/宽屏预览页(开发工件):复用真实 index.css(vite 处理 tailwind 与
+     md-content.css @import 链)与真实应用 DOM 结构,变量取值内联自
+     resources/themes/{light,dark}.json。dev server 下访问
+     /dts/feat-theme-wide/theme-preview.html。右上角浮层切换主题与宽屏。 -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Ruakdown 主题预览</title>
+    <link rel="stylesheet" href="/src/index.css" />
+    <style>
+      .pv-panel {
+        position: fixed;
+        top: 48px;
+        right: 12px;
+        z-index: 9999;
+        display: flex;
+        gap: 6px;
+        padding: 6px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+        font-size: 12px;
+      }
+      .pv-panel button {
+        font: inherit;
+        color: var(--text);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 3px 10px;
+        cursor: pointer;
+      }
+      .pv-panel button.on {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="pv-panel">
+      <button id="pv-light" class="on">浅色</button>
+      <button id="pv-dark">暗色</button>
+      <button id="pv-wide">宽屏</button>
+    </div>
+
+    <div class="app">
+      <header class="titlebar">
+        <div class="tb-left">
+          <span class="tb-doc">Ruakdown · 面向读者的发布工程.md</span>
+        </div>
+        <div class="tb-fill" />
+        <div class="mode-switch" aria-label="视图模式">
+          <button type="button" class="active">阅读</button>
+          <button type="button">实时</button>
+          <button type="button">分屏</button>
+          <button type="button">源码</button>
+        </div>
+        <div class="tb-fill" />
+        <div class="tb-actions">
+          <button type="button" class="tb-btn tb-dd-trigger">
+            <span class="tb-dd-label">浅色</span>
+          </button>
+          <button type="button" class="tb-btn">◎</button>
+          <button type="button" class="tb-btn">⛶</button>
+          <button type="button" class="tb-btn">⚙</button>
+        </div>
+        <div class="tb-win">
+          <button class="tb-win-btn">—</button>
+          <button class="tb-win-btn">□</button>
+          <button class="tb-win-btn tb-win-close">✕</button>
+        </div>
+      </header>
+
+      <div class="main">
+        <aside class="sidebar">
+          <div class="sidebar-tabs">
+            <button class="tab active">文件</button>
+            <button class="tab">大纲</button>
+          </div>
+          <div class="sidebar-panes">
+            <div class="sidebar-pane">
+              <div class="tree-row active"><span class="label">面向读者的发布工程.md</span></div>
+              <div class="tree-row dir open"><span class="chev">▾</span><span class="label">docs</span></div>
+              <div class="tree-row"><span class="label">CHANGELOG.md</span></div>
+              <div class="tree-row"><span class="label">USAGE.md</span></div>
+              <div class="tree-row dir"><span class="chev">▸</span><span class="label">assets</span></div>
+              <div class="tree-row"><span class="label">README.md</span></div>
+            </div>
+          </div>
+        </aside>
+
+        <div class="content">
+          <div class="reader-wrap">
+            <div class="md-body">
+              <div class="md-frontmatter">
+                <div class="fm-row fm-title"><span class="fm-key">标题</span><span class="fm-val">面向读者的发布工程</span></div>
+                <div class="fm-row fm-desc"><span class="fm-key">描述</span><span class="fm-val">把 Markdown 写作当成一次小型发布流程来管理。</span></div>
+                <div class="fm-row fm-chiprow"><span class="fm-key">标签</span><span class="fm-chips"><span class="fm-chip chip-0">写作</span><span class="fm-chip chip-3">工程</span><span class="fm-chip chip-5">Markdown</span><span class="fm-chip chip-6">工具链</span></span></div>
+              </div>
+
+              <h1>面向读者的发布工程</h1>
+              <p>写作不是把字敲完,而是<strong>持续交付一份可读的产物</strong>。这篇文章用 <code>rsync</code> 的思路拆解发布流程:<em>草稿、评审、构建、分发</em>,每一环都可以被 ==自动化==。参考 <a href="#">官方发布指南</a>。</p>
+              <blockquote><p>好的文档是写给人看的,不是写给机器看的——但机器得先能解析它。</p></blockquote>
+
+              <h2>流程总览</h2>
+              <ol>
+                <li>草稿:<strong>自由书写</strong>,不修饰结构;</li>
+                <li>评审:按小节切片,逐段确认;</li>
+                <li>构建:渲染、校验链接与图片;</li>
+                <li>分发:导出单文件 HTML 或局域网分享。</li>
+              </ol>
+              <ul>
+                <li><input type="checkbox" checked disabled /> 定稿目录结构</li>
+                <li><input type="checkbox" disabled /> 补齐术语表</li>
+                <li><input type="checkbox" disabled /> 校对代码示例</li>
+              </ul>
+
+              <h3>里程碑</h3>
+              <table>
+                <thead><tr><th>阶段</th><th>产出</th><th>负责人</th><th>状态</th></tr></thead>
+                <tbody>
+                  <tr><td>草稿</td><td>全文初稿</td><td>作者</td><td>已完成</td></tr>
+                  <tr><td>评审</td><td>批注与修订</td><td>编辑</td><td>进行中</td></tr>
+                  <tr><td>构建</td><td>HTML / 分享页</td><td>工具链</td><td>待开始</td></tr>
+                </tbody>
+              </table>
+
+              <pre><code><span class="tok-keyword">fn</span> <span class="tok-function">publish</span>(doc: &amp;<span class="tok-type">Doc</span>) -&gt; <span class="tok-type">Result</span>&lt;<span class="tok-type">Artifact</span>&gt; {
+    <span class="tok-comment">// 渲染、校验、打包一气呵成</span>
+    <span class="tok-keyword">let</span> html = <span class="tok-function">render</span>(&amp;doc.source)?;  <span class="tok-comment">// pulldown-cmark</span>
+    <span class="tok-function">verify_links</span>(&amp;html, <span class="tok-number">3</span>)?;      <span class="tok-comment">// 断链即失败</span>
+    <span class="tok-const">OK</span>(<span class="tok-function">bundle</span>(html, <span class="tok-string">"single-file"</span>))
+}</code></pre>
+
+              <h2>分享与反馈</h2>
+              <p>局域网分享走 axum,令牌鉴权;阅读端与本地渲染共用同一条管线,<mark>结果必然一致</mark>。分享页离线可用,断网也不影响已打开的页面。</p>
+              <div class="mermaid-block" style="min-height:120px;display:flex;align-items:center;justify-content:center;color:var(--muted)">graph TD; 草稿--&gt;评审--&gt;构建--&gt;分发(Mermaid 渲染区)</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="statusbar">
+        <span class="status-file">面向读者的发布工程.md</span>
+        <span>阅读视图</span>
+        <span>UTF-8</span>
+        <span>LF</span>
+        <span class="spacer" />
+        <span>v0.14.1</span>
+      </footer>
+    </div>
+
+    <script type="module">
+      // 与 resources/themes/{light,dark}.json 严格一致的变量表。
+      const LIGHT = {
+        "--bg": "#ffffff", "--panel": "#f5f6fa", "--border": "#e3e5ef",
+        "--text": "#24283b", "--muted": "#646a80", "--heading": "#191d31",
+        "--link": "#4f46e5", "--accent": "#4f46e5",
+        "--accent-soft": "rgba(79, 70, 229, 0.1)",
+        "--code-bg": "#eef0fa", "--code-text": "#4340c0",
+        "--pre-bg": "#f7f7fd", "--pre-border": "#e6e8f5",
+        "--quote-border": "#b9bdf2", "--quote-text": "#4c5168",
+        "--table-border": "#e3e5ef", "--mermaid-bg": "#ffffff",
+        "--reader-overlay-rgb": "255, 255, 255",
+        "--chip-0": "#e11d48", "--chip-1": "#ea580c", "--chip-2": "#b45309",
+        "--chip-3": "#15803d", "--chip-4": "#0e7490", "--chip-5": "#4f46e5",
+        "--chip-6": "#7c3aed", "--chip-7": "#db2777",
+      };
+      const DARK = {
+        "--bg": "#111420", "--panel": "#181b2a", "--border": "#2a2e42",
+        "--text": "#d6daea", "--muted": "#8b90a8", "--heading": "#e9ecfa",
+        "--link": "#818cf8", "--accent": "#818cf8",
+        "--accent-soft": "rgba(129, 140, 248, 0.16)",
+        "--code-bg": "#1b1e30", "--code-text": "#b7bef7",
+        "--pre-bg": "#0c0e18", "--pre-border": "#23263a",
+        "--quote-border": "#3d4260", "--quote-text": "#a2a8c2",
+        "--table-border": "#2a2e42", "--mermaid-bg": "#151827",
+        "--reader-overlay-rgb": "15, 16, 26",
+        "--chip-0": "#fb7185", "--chip-1": "#fb923c", "--chip-2": "#fbbf24",
+        "--chip-3": "#4ade80", "--chip-4": "#22d3ee", "--chip-5": "#818cf8",
+        "--chip-6": "#c084fc", "--chip-7": "#f472b6",
+      };
+      const root = document.documentElement;
+      const apply = (vars, dark) => {
+        for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+        root.dataset.scheme = dark ? "dark" : "light";
+        root.style.colorScheme = dark ? "dark" : "light";
+      };
+      const bl = document.getElementById("pv-light");
+      const bd = document.getElementById("pv-dark");
+      const bw = document.getElementById("pv-wide");
+      bl.onclick = () => { apply(LIGHT, false); bl.classList.add("on"); bd.classList.remove("on"); };
+      bd.onclick = () => { apply(DARK, true); bd.classList.add("on"); bl.classList.remove("on"); };
+      bw.onclick = () => {
+        const on = root.classList.toggle("wide-on");
+        bw.classList.toggle("on", on);
+      };
+      apply(LIGHT, false);
+    </script>
+  </body>
+</html>

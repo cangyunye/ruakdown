@@ -6,32 +6,32 @@
 /* Default = light theme; builtin themes override these vars at :root via JS. */
 :root {
   --bg: #ffffff;
-  --panel: #f6f8fa;
-  --border: #d1d9e0;
-  --text: #1f2328;
-  --muted: #59636e;
-  --heading: #1f2328;
-  --link: #0969da;
-  --accent: #0969da;
-  --accent-soft: rgba(9, 105, 218, 0.12);
-  --code-bg: #f0f2f5;
-  --code-text: #1f2328;
-  --pre-bg: #f6f8fa;
-  --pre-border: #e4e8ec;
-  --quote-border: #d1d9e0;
-  --quote-text: #59636e;
-  --table-border: #d1d9e0;
+  --panel: #f5f6fa;
+  --border: #e3e5ef;
+  --text: #24283b;
+  --muted: #646a80;
+  --heading: #191d31;
+  --link: #4f46e5;
+  --accent: #4f46e5;
+  --accent-soft: rgba(79, 70, 229, 0.1);
+  --code-bg: #eef0fa;
+  --code-text: #4340c0;
+  --pre-bg: #f7f7fd;
+  --pre-border: #e6e8f5;
+  --quote-border: #b9bdf2;
+  --quote-text: #4c5168;
+  --table-border: #e3e5ef;
   --mermaid-bg: #ffffff;
   --reader-overlay-rgb: 255, 255, 255;
   /* Frontmatter chip palette fallback; builtin themes override per theme. */
-  --chip-0: #cf222e;
-  --chip-1: #bc4c00;
-  --chip-2: #9a6700;
-  --chip-3: #1a7f37;
-  --chip-4: #1b7c83;
-  --chip-5: #0969da;
-  --chip-6: #8250df;
-  --chip-7: #bf3989;
+  --chip-0: #e11d48;
+  --chip-1: #ea580c;
+  --chip-2: #b45309;
+  --chip-3: #15803d;
+  --chip-4: #0e7490;
+  --chip-5: #4f46e5;
+  --chip-6: #7c3aed;
+  --chip-7: #db2777;
   /* Syntax token colors (light); switched with --syn-* below via data-scheme. */
   --syn-keyword: #cf222e;
   --syn-string: #0a3069;
@@ -696,6 +696,15 @@ body {
   padding: 40px 48px 80px;
   line-height: 1.75;
   color: var(--text);
+}
+
+/* Wide mode (`wide-on` on documentElement, Ctrl/Cmd+Shift+L): lift the
+   centered column cap so wide tables and images use the full window. The
+   split preview and the live-view block widgets reset .md-body to
+   max-width: none on their own; this rule widens the reader scroller
+   (Reader and ChunkedReader share it). */
+:root.wide-on .md-body {
+  max-width: none;
 }
 
 /* ---------- reader background image ---------- */

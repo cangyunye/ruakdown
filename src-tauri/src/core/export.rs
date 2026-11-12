@@ -232,7 +232,7 @@ mod tests {
         assert!(html.contains("<h1 id="));
         assert!(html.contains("language-mermaid"));
         assert!(html.contains("cdn.jsdelivr.net/npm/mermaid@12"));
-        assert!(html.contains("--bg:#1e1e1e;"));
+        assert!(html.contains("--bg:#111420;"));
         // Shared markdown content styles ride along with the export shell.
         assert!(html.contains(".md-body h1"), "shared content styles embedded");
         assert!(html.contains(".md-frontmatter"), "frontmatter card styles embedded");

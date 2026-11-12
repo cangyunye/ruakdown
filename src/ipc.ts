@@ -115,6 +115,8 @@ export interface AppConfig {
   assetsDir?: string | null;
   /** View to show when launching with a document; default "read". */
   startupMode?: "read" | "live" | "split" | "edit" | null;
+  /** Wide reading column: drop the centered max-width cap. */
+  wide?: boolean | null;
 }
 
 export interface Theme {

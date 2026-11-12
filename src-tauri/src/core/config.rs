@@ -61,6 +61,9 @@ pub struct Config {
     /// View shown when the app launches with a document: "read" | "live"
     /// | "split" | "edit"; missing means "read".
     pub startup_mode: Option<String>,
+    /// Wide reading column: drop the centered max-width cap; missing
+    /// means false.
+    pub wide: Option<bool>,
 }
 
 pub fn load(path: &Path) -> Config {
@@ -89,5 +92,14 @@ mod tests {
 
         let old: Config = serde_json::from_str("{}").unwrap();
         assert!(old.startup_mode.is_none());
+    }
+
+    #[test]
+    fn wide_flag_round_trips_and_missing_field_defaults() {
+        let cfg: Config = serde_json::from_str(r#"{"wide":true}"#).unwrap();
+        assert_eq!(cfg.wide, Some(true));
+
+        let old: Config = serde_json::from_str("{}").unwrap();
+        assert!(old.wide.is_none());
     }
 }

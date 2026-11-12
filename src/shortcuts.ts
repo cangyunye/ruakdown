@@ -66,6 +66,7 @@ export type ShortcutAction =
   | "zen-prev"
   | "zen-exit"
   | "exit-fullscreen"
+  | "wide"
   | "recent-1"
   | "recent-2"
   | "recent-3"
@@ -116,6 +117,10 @@ export function matchShortcut(
   if (key === "f11" || (e.metaKey && e.ctrlKey && key === "f")) {
     return "fullscreen";
   }
+  // Wide mode: Ctrl/Cmd+Shift+L toggles the reader column cap (L for
+  // layout/width). Ungated like toggle-sidebar — a layout toggle is safe
+  // behind panels, and Shift+L is not a text chord in the editor.
+  if (mod && e.shiftKey && key === "l") return "wide";
   // In-document find/replace. Ctrl+R is remapped from the webview reload
   // (F5 reloads instead); Ctrl/Cmd+Shift+F stays the workspace search.
   if (mod && !e.shiftKey && key === "f" && !(e.metaKey && e.ctrlKey)) {

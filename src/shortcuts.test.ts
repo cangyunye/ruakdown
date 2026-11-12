@@ -57,6 +57,10 @@ describe("matchShortcut · Windows chords (Ctrl, no meta)", () => {
     expect(matchShortcut(win("z", true), idle)).toBe("zen");
   });
 
+  it("toggles wide mode with Ctrl+Shift+L", () => {
+    expect(matchShortcut(win("l", true), idle)).toBe("wide");
+  });
+
   it("enters fullscreen with F11", () => {
     expect(matchShortcut(press({ key: "F11" }), idle)).toBe("fullscreen");
   });
@@ -100,6 +104,10 @@ describe("matchShortcut · macOS chords (⌘/meta)", () => {
     expect(matchShortcut(mac("f", true), idle)).toBe("search");
     expect(matchShortcut(mac("p"), idle)).toBe("quick-open");
     expect(matchShortcut(mac("z", true), idle)).toBe("zen");
+  });
+
+  it("maps ⌘+Shift+L → wide", () => {
+    expect(matchShortcut(mac("l", true), idle)).toBe("wide");
   });
 
   it("maps ⌘+F → find and ⌘+R → replace", () => {

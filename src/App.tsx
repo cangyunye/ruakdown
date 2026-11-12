@@ -261,6 +261,8 @@ export default function App() {
   const [zenCfg, setZenCfg] = useState<ResolvedZen>(DEFAULT_ZEN);
   const [zenPos, setZenPos] = useState<{ idx: number; total: number } | null>(null);
   const [fullscreenOn, setFullscreenOn] = useState(false);
+  // Wide reading column: drop the centered max-width cap (Ctrl+Shift+L).
+  const [wideOn, setWideOn] = useState(false);
   const [appVersion, setAppVersion] = useState("");
   const [editorSide, setEditorSide] = useState<EditorSide>("left");
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -338,6 +340,7 @@ export default function App() {
     editorSide,
     splitRatio,
     assetsDir,
+    wideOn,
   });
   stateRef.current = {
     root,
@@ -351,6 +354,7 @@ export default function App() {
     editorSide,
     splitRatio,
     assetsDir,
+    wideOn,
   };
   const editTextRef = useRef("");
   /** Debounced outline rebuild for the live view, derived from the buffer
@@ -414,6 +418,7 @@ export default function App() {
         split: { editorSide: s.editorSide, ratio: s.splitRatio },
         assetsDir: s.assetsDir,
         startupMode: startupModeRef.current,
+        wide: s.wideOn,
         ...patch,
       })
       .catch(() => {});
@@ -1918,17 +1923,19 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [info]);
 
-  // Mirror zen preferences onto documentElement for the CSS side.
+  // Mirror zen preferences and the wide-column flag onto documentElement
+  // for the CSS side.
   useEffect(() => {
     const root = document.documentElement;
     root.classList.toggle("zen-on", zenOn);
     root.classList.toggle("zen-dim-blur", zenCfg.effect === "dim-blur");
     root.classList.toggle("zen-emphasis", zenCfg.emphasis);
+    root.classList.toggle("wide-on", wideOn);
     root.style.setProperty(
       "--zen-dim",
       zenCfg.effect === "dim-blur" ? "0.15" : "0.22",
     );
-  }, [zenOn, zenCfg]);
+  }, [zenOn, zenCfg, wideOn]);
 
   // Suppress the webview's default context menu everywhere except text-entry
   // surfaces. The file tree layers its own menu on top via onContextMenu
@@ -2061,6 +2068,9 @@ export default function App() {
         case "toggle-sidebar":
           setSidebarVisible((v) => !v);
           break;
+        case "wide":
+          setWideOn((v) => !v);
+          break;
         case "doc-back":
           fireOnce("doc-back", () => goBackDoc());
           break;
@@ -2158,6 +2168,7 @@ export default function App() {
           setServePort(cfg.servePort);
         }
         if (cfg.autosave != null) setAutosaveOn(cfg.autosave);
+        if (cfg.wide != null) setWideOn(cfg.wide);
         const startMode = normalizeStartupMode(cfg.startupMode);
         setStartupMode(startMode);
         if (cfg.recentFiles) {
@@ -2593,6 +2604,7 @@ export default function App() {
                       专注 {zenPos.idx + 1}/{zenPos.total}
                     </span>
                   )}
+                  {wideOn && <span>宽屏</span>}
                   <span>{doc.encoding}</span>
                   <span>{doc.eol.toUpperCase()}</span>
                   {dirty && <span className="status-dirty">未保存</span>}
@@ -2863,6 +2875,21 @@ export default function App() {
                 style={{ width: 90 }}
               />
             </label>
+            <div className="setting-divider">布局</div>
+            <label className="setting-row">
+              <span>宽屏模式(阅读区取消居中限宽)</span>
+              <input
+                type="checkbox"
+                checked={wideOn}
+                onChange={(e) => {
+                  setWideOn(e.target.checked);
+                  persist({ wide: e.target.checked });
+                }}
+              />
+            </label>
+            <p className="setting-hint">
+              宽屏下阅读/实时内容铺满窗口,适合宽表格与大图;快捷键 Ctrl/Cmd+Shift+L 随时切换。
+            </p>
             <div className="setting-divider">阅读区背景图</div>
             <label className="setting-row">
               <span>启用背景图</span>
