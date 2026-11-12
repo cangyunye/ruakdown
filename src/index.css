@@ -475,6 +475,44 @@ body {
   }
 }
 
+/* ---------- drag-in veil (open a file dropped onto the window) ---------- */
+
+.drop-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+}
+
+/* Dashed target frame inset from the window edges, tinted with the active
+   theme's accent so it reads on every theme. */
+.drop-veil::before {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: var(--accent-soft);
+}
+
+.drop-veil-card {
+  position: relative;
+  padding: 12px 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow:
+    0 10px 36px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+  font-size: 14px;
+  color: var(--text);
+  animation: banner-drop 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* ---------- layout ---------- */
 
 .main {

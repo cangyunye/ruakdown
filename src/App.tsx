@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
@@ -19,6 +20,7 @@ import { applyTheme } from "./theme";
 import { scrollToText } from "./jumpToText";
 import { openMarkdownLink } from "./links";
 import { decideFsChange, type SelfSaveMark } from "./changeDecision";
+import { pickDroppedMarkdown } from "./dragDrop";
 import { createSaveCoordinator } from "./saveCoordinator";
 import {
   emptyHistory,
@@ -207,6 +209,8 @@ export default function App() {
   startupModeRef.current = startupMode;
   const [dirty, setDirty] = useState(false);
   const [externalChange, setExternalChange] = useState(false);
+  // Drag-in veil: a file hovers over the window with an openable payload.
+  const [dropVeil, setDropVeil] = useState(false);
   const [themeName, setThemeName] = useState("light");
   const [themeDark, setThemeDark] = useState(false);
   /** id → display name, from list_themes (JSON `name` fields); empty until loaded. */
@@ -2223,6 +2227,32 @@ export default function App() {
     };
   }, []);
 
+  // Drag a file in from Finder / Explorer: Tauri's native drag-drop (enabled
+  // by default) hands over absolute paths, so a drop follows the exact open
+  // path a double-click launch takes. The events arrive at window level, not
+  // through the DOM — the veil is pure display. wry differs per platform:
+  // Windows only emits for file drags, macOS emits for text drags too (with
+  // an empty path list), so empty drops must stay silent.
+  useEffect(() => {
+    const unlisten = getCurrentWebview().onDragDropEvent((event) => {
+      const p = event.payload;
+      if (p.type === "enter") {
+        setDropVeil(pickDroppedMarkdown(p.paths) !== null);
+      } else if (p.type === "leave") {
+        setDropVeil(false);
+      } else if (p.type === "drop") {
+        setDropVeil(false);
+        const md = pickDroppedMarkdown(p.paths);
+        if (md) void openFileRef.current(md);
+        else if (p.paths.length > 0) setInfo("仅支持拖入 .md / .markdown 文档");
+      }
+      // over: keep the enter decision — the payload carries no paths.
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   // External filesystem changes: refresh the tree, then decide what the
   // event means for the open file (our own save echoes are suppressed —
   // see decideFsChange; real changes prompt via the overlay banner when
@@ -2478,6 +2508,15 @@ export default function App() {
           onSettings={() => setSettingsOpen(true)}
           onAction={routeAction}
         />
+      )}
+
+      {/* Drag-in veil: covers the window while an openable file hovers over
+          it (z above modals/menus; pointer-events off — drag events are
+          native, and a stray veil must never eat clicks). */}
+      {dropVeil && (
+        <div className="drop-veil" aria-hidden>
+          <div className="drop-veil-card">松开以打开 Markdown 文档</div>
+        </div>
       )}
 
       {/* Banner curtain: fixed overlay above everything (z 300). It slides
