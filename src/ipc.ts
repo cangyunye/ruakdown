@@ -215,6 +215,10 @@ export const api = {
   /** One TeX run → the same HTML the reading renderer emits. */
   renderMath: (tex: string, display: boolean) =>
     invoke<string>("render_math", { tex, display }),
+  /** One markdown block fragment → the reading renderer's HTML for it
+   * (images rewritten to asset URLs against baseFile's directory). */
+  renderFragment: (md: string, baseFile: string) =>
+    invoke<string>("render_fragment", { md, baseFile }),
   pickExportPath: (defaultName: string) =>
     invoke<string | null>("pick_export_path", { defaultName }),
   exportHtml: (

@@ -11,7 +11,7 @@ import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/lang
 import { tags as t } from "@lezer/highlight";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { pathDirname } from "./fileOps";
-import { liveBlocksField, renderedBlocks } from "./liveBlocks";
+import { liveBlocksField, renderedBlocks, setFragmentBase } from "./liveBlocks";
 
 /** Block nodes whose raw Markdown stays visible while the cursor is inside. */
 const REVEAL_NODES = new Set([
@@ -408,6 +408,12 @@ export function buildLiveDecorations(
               widget(n.from, n.to, new BulletWidget());
             }
           }
+          // The reading view paints ordered ::marker bold in the accent
+          // color; bullets are replaced by the accent BulletWidget instead,
+          // so only the raw ordinals need the face carried over.
+          if (n.parent?.parent?.name === "OrderedList") {
+            mark(n.from, n.to, "rk-ol-mark");
+          }
           return false;
         }
         case "TaskMarker": {
@@ -418,11 +424,6 @@ export function buildLiveDecorations(
               .includes("x");
             widget(n.from, n.to, new TaskWidget(checked, n.from, n.to));
           }
-          // lezer tags the whole Task as `list`, which the editor's prose
-          // highlight paints in the accent color; the reading view shows
-          // task text in the normal text color.
-          const task = n.parent;
-          if (task && task.to > n.to) mark(n.to, task.to, "rk-task-text");
           return false;
         }
         case "Image": {
@@ -562,11 +563,15 @@ const ABSOLUTE_SRC = /^(?:https?:|data:|#|asset:)/i;
  * CM mounts style modules so that the *earlier* extension's rules win on
  * equal specificity — a later `inherit` could never override the base.
  *
- * Prose tags mirror SourceEditor's base style minus `heading`: in the live
- * view the `rk-h*` line classes own heading color and weight. An inner span
- * painted `--heading` would also tint frontmatter, whose closing `---`
- * makes lezer parse the metadata as a Setext heading, on every theme whose
- * heading color differs from the text color.
+ * Prose tags mirror SourceEditor's base style minus `heading` and `list`: in
+ * the live view the `rk-h*` line classes own heading color and weight. An
+ * inner span painted `--heading` would also tint frontmatter, whose closing
+ * `---` makes lezer parse the metadata as a Setext heading, on every theme
+ * whose heading color differs from the text color. `list` is dropped because
+ * lezer's `BulletList/... OrderedList/...` selector tags every *descendant*,
+ * so painting it accent colors whole item paragraphs — the reading view keeps
+ * list text in the normal text color (only ::marker is accent), and the
+ * ordered ordinals get the accent back via the `rk-ol-mark` decoration.
  *
  * Code tokens key to the same `--syn-*` palette the Rust highlighter feeds,
  * so a highlighted fence matches its reading-view rendering. */
@@ -578,7 +583,6 @@ export const liveHighlight = HighlightStyle.define([
   { tag: t.url, color: "var(--muted)" },
   { tag: t.monospace, color: "var(--code-text)" },
   { tag: t.quote, color: "var(--quote-text)" },
-  { tag: t.list, color: "var(--accent)" },
   { tag: t.processingInstruction, color: "var(--accent)" },
   { tag: t.keyword, color: "var(--syn-keyword)" },
   { tag: t.string, color: "var(--syn-string)" },
@@ -644,13 +648,19 @@ function normalizePath(p: string): string {
 }
 
 const liveTheme = EditorView.theme({
+  // 14px base = the reader's body size: every em-based mirror in index.css
+  // (headings, inline code, pre text…) then resolves to the reading view's
+  // exact px values. maxWidth 812px = the reader's 860px column minus its
+  // 48px horizontal padding, so cm-line text (812 - 32 content padding -
+  // 16 line padding) and the block-widget wrappers (same arithmetic) wrap
+  // at the same 764px measure as .md-body.
   "&.rk-live .cm-scroller": {
     fontFamily: "inherit",
-    fontSize: "15px",
+    fontSize: "14px",
     lineHeight: "1.75",
   },
   "&.rk-live .cm-content": {
-    maxWidth: "860px",
+    maxWidth: "812px",
     padding: "24px 16px 60vh",
   },
   "&.rk-live .cm-line": {
@@ -659,6 +669,10 @@ const liveTheme = EditorView.theme({
 });
 
 export function livePreview(docPath: string): Extension {
+  // Fragment widgets (liveBlocks.ts) resolve relative asset URLs against the
+  // document's directory; the app remounts the editor per file, so setting
+  // the module-level base here tracks that lifecycle.
+  setFragmentBase(docPath);
   const plugin = ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;

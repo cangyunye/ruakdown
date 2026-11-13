@@ -11,6 +11,7 @@ import {
   livePreview,
   resolveImagePath,
 } from "./livePreview";
+import { renderedBlocks } from "./liveBlocks";
 import { markdownSupport } from "./markdownSupport";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -146,7 +147,7 @@ describe("live decorations", () => {
     expect(liveHighlight.style([t.keyword])).toEqual(expect.any(String));
   });
 
-  it("mounts alerts and fenced code in a real editor", () => {
+  it("mounts inactive blocks as widgets and the active block as raw line-styled text", () => {
     const parent = document.createElement("div");
     document.body.append(parent);
     const doc = "> [!TIP]\n> body\n\n```ts\nlet x = 1;\n```\n\nend\n";
@@ -159,11 +160,41 @@ describe("live decorations", () => {
         }),
         parent,
       });
-      expect(view.dom.querySelector(".rk-alert-tip.rk-alert-title")).not.toBeNull();
-      expect(view.dom.querySelector(".rk-code-first")).not.toBeNull();
-      expect(view.dom.textContent).not.toContain("```");
-      expect(view.dom.textContent).not.toContain("[!TIP]");
+      // Cursor in the trailing paragraph: alert + fence are inactive, so
+      // liveBlocks renders them behind fragment widgets and the line classes
+      // only apply to the active block.
+      expect(view.dom.querySelector(".rk-render-block")).not.toBeNull();
+      expect(view.dom.querySelector(".rk-alert-tip.rk-alert-title")).toBeNull();
+      expect(view.dom.querySelector(".rk-code-first")).toBeNull();
+
+      // Cursor inside the fence: it reveals as raw text with line classes
+      // while the alert stays widget-rendered. (The raw source becomes
+      // visible editor text; the class computation itself is asserted via
+      // the decoration set below — jsdom skips the class attribute for the
+      // line immediately following a removed block widget.)
+      view.dispatch({ selection: { anchor: doc.indexOf("let x") } });
+      expect(view.dom.textContent).toContain("```");
       expect(view.dom.textContent).toContain("let x = 1;");
+      expect(view.dom.querySelector(".rk-alert-tip.rk-alert-title")).toBeNull();
+      expect(view.dom.querySelector(".rk-render-block")).not.toBeNull();
+
+      const skip = renderedBlocks(view.state);
+      expect(skip.map((b) => b.kind)).toEqual(["prose", "prose"]);
+      const built = buildLiveDecorations(view.state, {
+        from: 0,
+        to: doc.length,
+        composing: false,
+        docPath: "/ws/a.md",
+        skip,
+      });
+      const classesAt: [number, string][] = [];
+      built.decorations.between(0, doc.length, (from, _to, value) => {
+        if (typeof value.spec.class === "string") classesAt.push([from, value.spec.class]);
+      });
+      // The revealed fence owns the code-face classes; the widgeted blocks
+      // own none.
+      expect(classesAt).toContainEqual([doc.indexOf("```ts"), expect.stringContaining("rk-code-first")]);
+      expect(classesAt.some(([, cls]) => cls.includes("rk-quote"))).toBe(false);
       view.destroy();
     } finally {
       parent.remove();
@@ -370,7 +401,9 @@ describe("block widgets", () => {
       }),
       parent,
     });
-    expect(view.dom.querySelector(".rk-hr-line")).not.toBeNull();
+    // The inactive hr is a widget now (liveBlocks.ts); the rk-hr-line line
+    // border only applies while its line is active.
+    expect(view.dom.querySelector(".rk-render-hr")).not.toBeNull();
     view.destroy();
     parent.remove();
 

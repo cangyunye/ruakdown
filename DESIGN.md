@@ -274,3 +274,14 @@ v0.3.2——快捷键兜底与全屏(2026-09-15 已完成):搜索/专注模式�
 
 - P1 不做:代码高亮 widget、公式 / Mermaid 行内预览、表格网格编辑、frontmatter 卡片化(目前只调暗)。
 - P2/P3 候选:把代码围栏升级为语法高亮 widget;公式与 Mermaid 做行内预览;表格网格编辑;frontmatter 卡片;更多跨行构造的安全替换。
+
+### P2 方案 B:全块级渲染(落地记录)
+
+**决策**:实时视图推广为 Obsidian 模型——**所有顶层块**在光标外渲染为真 HTML,光标进入回落为源码编辑(机制沿用 liveBlocks 的 StateField,该机制 P1 已为表格/公式/Mermaid 打通)。非活动块由此与阅读视图**逐字节同源**,不再依赖手写镜像 CSS(`.rk-live` 系列只服务光标所在块的瞬时源码态)。
+
+- **块范围来自 lezer 树**:块列表 = `syntaxTree` 顶层子节点(markdownSupport GFM 与 pulldown 表面已对齐),删除了 P1 的行扫描器与 `STRUCTURAL` 增量机制——解析本身增量且与 livePreview 插件共享,每击键只付 O(块数) 的遍历。范围所有权:块吞掉自身尾换行与后续空行直到下一块起点,渲染相邻块之间不残留编辑器空行。
+- **渲染管线新增 `render_fragment`(Rust)**:单块 markdown → 阅读同款 HTML(`render_markdown` + `rewrite_img_srcs`),与 reader/export/serve 共用 `post_process_events`——片段渲染逐字节等于全量是 large_doc 已有的受测不变量。调用方保证片段不以 `---` 开头(frontmatter 区排除);片段标题 id 是局部 slug,live 视图无 id 消费者,接受。前端 FragmentWidget 带 LRU 备忘缓存(400 条),重复滚动回看零 IPC 零闪烁;填充后调 `renderMermaidBlocks` 补渲染片段内嵌的 mermaid 围栏。
+- **分类**:段落/标题/引用(含 GFM alert)/列表/HTML 块 → prose 片段;围栏代码 → code 片段(Rust 高亮);水平线 → 本地 `<hr>`;表格保留 P1 的 TS 渲染(行内编辑定位需要 ParsedTable);`$$…$$` 数学沿用文本检测(限定在 Paragraph 内,与 pulldown"不跨空行配对"一致)。
+- **大小护栏**:文档 > 200KB 时 prose/code/hr 降级回 P1 行类样式(仅 table/math/mermaid 有 widget),超大文档击键成本可控;>1MB 分块文档进入 live 模式自动落入此回退。
+- **顺带修正的一致性问题**:无管道线的表格后续行(pulldown 视为表格行延续,已用 Rust 探针验证)P1 扫描器曾错误截断,现随 lezer 节点自然一致;短行单元格补空列对齐 pulldown。
+- **已知边界**:列表为整块粒度(光标进任一项整列表回落源码),逐项粒度留待后续;片段内嵌 mermaid 在主题明暗切换时不重渲染;挂载瞬间若 lezer 树尚未解析完,widget 于第一次事务后出现(可接受的自愈延迟)。

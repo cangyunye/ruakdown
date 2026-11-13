@@ -1,18 +1,18 @@
 import { EditorView } from "@codemirror/view";
-import { EditorState, Text } from "@codemirror/state";
+import { EditorState } from "@codemirror/state";
+import { ensureSyntaxTree } from "@codemirror/language";
 import { describe, expect, it, vi } from "vitest";
 import {
-  type LiveBlock,
+  FragmentWidget,
   MathWidget,
   TableWidget,
+  buildBlocks,
+  extractDisplayMath,
   liveBlocksField,
-  needsRescan,
   renderInlineMarkdown,
   renderedBlocks,
-  scanBlocks,
   splitTableRow,
   tableHtml,
-  updateBlocks,
 } from "./liveBlocks";
 import { buildLiveDecorations, livePreview } from "./livePreview";
 import { markdownSupport } from "./markdownSupport";
@@ -25,28 +25,48 @@ vi.mock("@tauri-apps/api/core", () => ({
 const renderMath = vi.fn(
   async (tex: string, _display: boolean) => `<span class="math math-display">${tex}</span>`,
 );
+const renderFragment = vi.fn(
+  async (md: string, _baseFile: string) => `<div class="rk-fragment">${md}</div>`,
+);
 vi.mock("./ipc", () => ({
-  api: { renderMath: (tex: string, display: boolean) => renderMath(tex, display) },
+  api: {
+    renderMath: (tex: string, display: boolean) => renderMath(tex, display),
+    renderFragment: (md: string, baseFile: string) => renderFragment(md, baseFile),
+  },
 }));
 
 const mermaidSvg = vi.fn(async (_source: string, _dark: boolean) => "<svg data-mermaid></svg>");
+const renderMermaidBlocks = vi.fn(
+  async (_root: HTMLElement, _dark: boolean) => {},
+);
 vi.mock("./mermaid", () => ({
   mermaidSvg: (s: string, d: boolean) => mermaidSvg(s, d),
+  renderMermaidBlocks: (root: HTMLElement, dark: boolean) =>
+    renderMermaidBlocks(root, dark),
 }));
-
-const scan = (doc: string) => scanBlocks(Text.of(doc.split("\n")));
 
 const TABLE = "| a | b |\n|---|:-:|\n| 1 | 2 |\n| 3 | 4 |\n";
 
-describe("scanBlocks", () => {
+function stateWith(doc: string, anchor = doc.length) {
+  return EditorState.create({
+    doc,
+    selection: { anchor },
+    extensions: [markdownSupport, liveBlocksField],
+  });
+}
+
+const blocksOf = (doc: string) => buildBlocks(stateWith(doc));
+const kindsOf = (doc: string) => blocksOf(doc).map((b) => b.kind);
+
+describe("buildBlocks", () => {
   it("parses a GFM table with header, alignment and body rows", () => {
-    const blocks = scan(TABLE);
+    const blocks = blocksOf(TABLE);
     expect(blocks).toHaveLength(1);
     const b = blocks[0];
     expect(b.kind).toBe("table");
     if (b.kind !== "table") return;
     expect(b.from).toBe(0);
-    // The range covers the trailing newline of the last row.
+    // A trailing block owns up to the end of the document.
     expect(b.to).toBe(TABLE.length);
     expect(b.table.header).toEqual(["a", "b"]);
     expect(b.table.aligns).toEqual(["left", "center"]);
@@ -57,7 +77,7 @@ describe("scanBlocks", () => {
   });
 
   it("accepts tables without leading or trailing pipes", () => {
-    const blocks = scan("a | b\n--- | ---:\n1 | 2\n");
+    const blocks = blocksOf("a | b\n--- | ---:\n1 | 2\n");
     expect(blocks).toHaveLength(1);
     if (blocks[0].kind !== "table") throw new Error("not a table");
     expect(blocks[0].table.header).toEqual(["a", "b"]);
@@ -65,28 +85,33 @@ describe("scanBlocks", () => {
     expect(blocks[0].table.rows).toEqual([["1", "2"]]);
   });
 
-  it("ends the table at the first blank or pipe-less line", () => {
+  it("ends the table where the lezer Table node ends", () => {
     const doc = "| a |\n|---|\n| 1 |\n\nafter | not a row\n";
-    const blocks = scan(doc);
-    expect(blocks).toHaveLength(1);
+    const blocks = blocksOf(doc);
+    expect(blocks.map((b) => b.kind)).toEqual(["table", "prose"]);
     if (blocks[0].kind !== "table") throw new Error("not a table");
     expect(blocks[0].table.rows).toEqual([["1"]]);
-    // Ends right after the last row's newline — at the blank line's start.
-    expect(blocks[0].to).toBe(doc.indexOf("\n\nafter") + 1);
+    // The table owns everything up to the next block's start (its trailing
+    // newline plus the blank line).
+    expect(blocks[0].to).toBe(doc.indexOf("after"));
   });
 
-  it("does not treat a pipe without a delimiter row as a table", () => {
-    expect(scan("a | b\nplain text\n")).toEqual([]);
+  it("classifies plain paragraphs and setext headings as prose", () => {
+    // `---` under a line is a setext underline (h2), never a table.
+    expect(kindsOf("a | b\nplain text\n")).toEqual(["prose"]);
+    expect(kindsOf("Title\n===\n")).toEqual(["prose"]);
   });
 
-  it("accepts single-column tables and never a pipe-less dash line", () => {
-    const one = scan("| only |\n|---|\n| x |\n");
-    expect(one).toHaveLength(1);
-    if (one[0].kind !== "table") throw new Error("not a table");
-    expect(one[0].table.header).toEqual(["only"]);
-    expect(one[0].table.rows).toEqual([["x"]]);
-    // `---` under a line with a pipe is a setext underline, not a table.
-    expect(scan("a | b\n---\n")).toEqual([]);
+  it("continues a pipe-less body line as a row, matching the reading renderer", () => {
+    // pulldown (verified) keeps scanning body rows past non-pipe lines; the
+    // lezer Table node agrees, so the widget shows what the reader shows.
+    const blocks = blocksOf("| a | b |\n|---|---|\n| 1 | 2 |\nafter\n");
+    expect(blocks).toHaveLength(1);
+    if (blocks[0].kind !== "table") throw new Error("not a table");
+    expect(blocks[0].table.rows).toEqual([
+      ["1", "2"],
+      ["after", ""],
+    ]);
   });
 
   it("honors escaped pipes inside cells", () => {
@@ -95,109 +120,133 @@ describe("scanBlocks", () => {
 
   it("parses a mermaid fence with its inner source only", () => {
     const doc = "intro\n\n```mermaid\ngraph TD\n  A --> B\n```\n\nafter\n";
-    const blocks = scan(doc);
-    expect(blocks).toHaveLength(1);
-    const b = blocks[0];
-    expect(b.kind).toBe("mermaid");
+    const blocks = blocksOf(doc);
+    expect(blocks.map((b) => b.kind)).toEqual(["prose", "mermaid", "prose"]);
+    const b = blocks[1];
     if (b.kind !== "mermaid") return;
     expect(b.source).toBe("graph TD\n  A --> B\n");
-    expect(doc.slice(b.from, b.to)).toBe("```mermaid\ngraph TD\n  A --> B\n```\n");
+    expect(doc.slice(b.from, b.to)).toContain("```mermaid");
   });
 
-  it("ignores non-mermaid fences and never scans their content as tables", () => {
+  it("renders non-mermaid fences as code fragments", () => {
     const doc = "```txt\n| a | b |\n|---|---|\n| 1 | 2 |\n```\n";
-    expect(scan(doc)).toEqual([]);
+    const blocks = blocksOf(doc);
+    expect(blocks).toHaveLength(1);
+    if (blocks[0].kind !== "code") throw new Error("not code");
+    // Fence content is never misread as a table.
+    expect(blocks[0].text).toBe(doc.trimEnd());
   });
 
-  it("handles tilde fences and longer backtick runs", () => {
-    expect(scan("~~~mermaid\ngraph LR\n~~~\n")).toHaveLength(1);
-    expect(scan("````mermaid\ngraph LR\n````\n")).toHaveLength(1);
-    // A shorter closing run does not close a longer opener.
-    expect(scan("````mermaid\ngraph LR\n```\n")).toEqual([]);
+  it("handles tilde fences, longer backtick runs and unclosed fences", () => {
+    expect(kindsOf("~~~mermaid\ngraph LR\n~~~\n")).toEqual(["mermaid"]);
+    expect(kindsOf("````mermaid\ngraph LR\n````\n")).toEqual(["mermaid"]);
+    // An unclosed fence runs to the end of the document; the shorter run
+    // stays fence *content* — the reading renderer sees the same thing, so
+    // the widget's diagram source matches it.
+    const unclosed = blocksOf("````mermaid\ngraph LR\n```\n");
+    expect(unclosed).toHaveLength(1);
+    if (unclosed[0].kind !== "mermaid") throw new Error("not mermaid");
+    expect(unclosed[0].source).toBe("graph LR\n```\n");
   });
 
   it("parses single-line and multi-line display math", () => {
-    const one = scan("$$E = mc^2$$\n");
-    expect(one).toEqual([{ kind: "math", from: 0, to: 13, tex: "E = mc^2" }]);
+    const one = blocksOf("$$E = mc^2$$\n");
+    expect(one).toHaveLength(1);
+    if (one[0].kind !== "math") throw new Error("not math");
+    expect(one[0].tex).toBe("E = mc^2");
+    expect(one[0].to).toBe("$$E = mc^2$$\n".length);
 
     const doc = "$$\n\\int_0^1 x\\,dx\n= \\frac12\n$$\n";
-    const multi = scan(doc);
+    const multi = blocksOf(doc);
     expect(multi).toHaveLength(1);
     if (multi[0].kind !== "math") throw new Error("not math");
     expect(multi[0].tex).toBe("\\int_0^1 x\\,dx\n= \\frac12");
     expect(multi[0].to).toBe(doc.length);
   });
 
-  it("leaves an unclosed math block alone", () => {
-    expect(scan("$$\nx = 1\n\nprose\n")).toEqual([]);
+  it("leaves math without a closing $$ inside the paragraph as prose", () => {
+    // pulldown never pairs `$$` across a blank line — the widget must not
+    // claim more than the reading view renders.
+    expect(kindsOf("$$\nx = 1\n\nprose\n")).toEqual(["prose", "prose"]);
   });
 
   it("skips the frontmatter even when it contains table-looking lines", () => {
     const doc = "---\ntitle: a | b\n---|---\n---\n\n| h |\n|---|\n| 1 |\n";
-    const blocks = scan(doc);
+    const blocks = blocksOf(doc);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].from).toBe(doc.indexOf("| h |"));
   });
 
   it("finds several blocks of different kinds in order", () => {
     const doc = `${TABLE}\n$$a$$\n\n\`\`\`mermaid\ngraph LR\n\`\`\`\n`;
-    expect(scan(doc).map((b) => b.kind)).toEqual(["table", "math", "mermaid"]);
+    expect(kindsOf(doc)).toEqual(["table", "math", "mermaid"]);
+  });
+
+  it("renders headings, quotes, lists and hr as fragment widgets", () => {
+    expect(kindsOf("# Head\n")).toEqual(["prose"]);
+    expect(kindsOf("> quote line\n> more\n")).toEqual(["prose"]);
+    expect(kindsOf("- item one\n- item two\n")).toEqual(["prose"]);
+    expect(kindsOf("above\n\n---\n\nbelow\n")).toEqual(["prose", "hr", "prose"]);
+  });
+
+  it("makes each block own its trailing newline and following blank lines", () => {
+    const doc = "one\n\ntwo\n\nthree\n";
+    const blocks = blocksOf(doc);
+    expect(blocks.map((b) => [b.kind, b.from, b.to])).toEqual([
+      ["prose", 0, doc.indexOf("two")],
+      ["prose", doc.indexOf("two"), doc.indexOf("three")],
+      ["prose", doc.indexOf("three"), doc.length],
+    ]);
+  });
+
+  it("drops prose/code/hr widgets past the size guard but keeps tables", () => {
+    const filler = "word ".repeat(41_000); // > ALL_BLOCK_LIMIT
+    const doc = `${TABLE}${filler}`;
+    const state = stateWith(doc, 0);
+    ensureSyntaxTree(state, 10_000);
+    expect(buildBlocks(state).map((b) => b.kind)).toEqual(["table"]);
   });
 });
 
-function stateWith(doc: string, anchor = doc.length) {
-  return EditorState.create({
-    doc,
-    selection: { anchor },
-    extensions: [markdownSupport, liveBlocksField],
+describe("extractDisplayMath", () => {
+  it("extracts single and multi line tex", () => {
+    expect(extractDisplayMath("$$a$$")).toBe("a");
+    expect(extractDisplayMath("$$\nx\n$$")).toBe("x");
+    expect(extractDisplayMath("$$\na\nb\n$$")).toBe("a\nb");
   });
-}
+  it("rejects paragraphs that do not open with $$ or never close", () => {
+    expect(extractDisplayMath("text $$x$$")).toBeNull();
+    expect(extractDisplayMath("$$\nunclosed")).toBeNull();
+  });
+});
 
-describe("incremental updates", () => {
-  it("maps block positions through a prose edit without rescanning", () => {
+describe("liveBlocks field", () => {
+  it("rebuilds blocks on document changes and reuses them on selection-only changes", () => {
     const doc = `intro\n\n${TABLE}`;
     const state = stateWith(doc, 0);
-    const old = scanBlocks(state.doc);
-    const tr = state.update({ changes: { from: 0, insert: "Hello " } });
-    expect(needsRescan(old, tr)).toBe(false);
-    const next = updateBlocks(old, tr);
-    expect(next).toHaveLength(1);
-    expect(next[0].from).toBe(old[0].from + 6);
-    expect(next[0].to).toBe(old[0].to + 6);
-    // The parsed table is carried over, not re-parsed.
-    expect((next[0] as Extract<LiveBlock, { kind: "table" }>).table).toBe(
-      (old[0] as Extract<LiveBlock, { kind: "table" }>).table,
-    );
+    const before = state.field(liveBlocksField).blocks;
+
+    const selectionTr = state.update({ selection: { anchor: 2 } });
+    expect(selectionTr.state.field(liveBlocksField).blocks).toBe(before);
+
+    const editTr = state.update({ changes: { from: 0, insert: "Hello " } });
+    const after = editTr.state.field(liveBlocksField).blocks;
+    expect(after).toHaveLength(before.length);
+    // The edit merged into the opening paragraph, which now starts at 0…
+    expect(after[0].from).toBe(0);
+    expect(after[0].kind).toBe("prose");
+    // …and every following block shifted by the inserted width.
+    const lastBefore = before[before.length - 1];
+    const lastAfter = after[after.length - 1];
+    expect(lastAfter.from).toBe(lastBefore.from + 6);
+    expect(lastAfter.to).toBe(lastBefore.to + 6);
+    expect(lastAfter.kind).toBe(lastBefore.kind);
   });
 
-  it("rescans when a structural character is typed", () => {
-    const state = stateWith("a b\n", 0);
-    const tr = state.update({ changes: { from: 1, insert: "|" } });
-    expect(needsRescan([], tr)).toBe(true);
-  });
-
-  it("rescans when an edit touches an existing block", () => {
+  it("drops blocks whose text was deleted entirely", () => {
     const state = stateWith(TABLE, 0);
-    const old = scanBlocks(state.doc);
-    const tr = state.update({ changes: { from: 2, to: 3, insert: "x" } });
-    expect(needsRescan(old, tr)).toBe(true);
-    const next = updateBlocks(old, tr);
-    if (next[0].kind !== "table") throw new Error("not a table");
-    expect(next[0].table.header).toEqual(["x", "b"]);
-  });
-
-  it("drops a block whose text was deleted entirely", () => {
-    const state = stateWith(TABLE, 0);
-    const old = scanBlocks(state.doc);
     const tr = state.update({ changes: { from: 0, to: TABLE.length, insert: "" } });
-    expect(updateBlocks(old, tr)).toEqual([]);
-  });
-
-  it("returns the same array for a selection-only transaction", () => {
-    const state = stateWith(TABLE, 0);
-    const old = scanBlocks(state.doc);
-    const tr = state.update({ selection: { anchor: 2 } });
-    expect(updateBlocks(old, tr)).toBe(old);
+    expect(tr.state.field(liveBlocksField).blocks).toEqual([]);
   });
 });
 
@@ -283,7 +332,7 @@ describe("block widgets in the editor", () => {
   });
 
   it("keeps the block rendered while the cursor sits on the line after it", () => {
-    const doc = `before\n${TABLE}after\n`;
+    const doc = `before\n${TABLE}\nafter\n`;
     const { view, dispose } = mount(doc, 0);
     try {
       const blockTo = doc.indexOf("after");
@@ -298,7 +347,7 @@ describe("block widgets in the editor", () => {
   });
 
   it("reveals the source when the cursor arrows into the block", () => {
-    const doc = `before\n${TABLE}after\n`;
+    const doc = `before\n${TABLE}\nafter\n`;
     const { view, dispose } = mount(doc, 0);
     try {
       const blockTo = doc.indexOf("after");
@@ -389,10 +438,159 @@ describe("block widgets in the editor", () => {
     }
   });
 
+  it("renders an inactive paragraph as reading-view HTML via render_fragment", async () => {
+    const doc = "fragment-probe-one **bold**\n\nafter\n";
+    const { view, dispose } = mount(doc, doc.length);
+    try {
+      const wrap = view.dom.querySelector<HTMLElement>(".rk-render-block");
+      expect(wrap).not.toBeNull();
+      expect(wrap?.classList.contains("md-body")).toBe(true);
+      // The paragraph source goes to Rust verbatim, addressed to the doc dir.
+      expect(renderFragment).toHaveBeenCalledWith("fragment-probe-one **bold**", "/ws/a.md");
+      // The raw Markdown is hidden behind the widget even before HTML lands.
+      expect(view.dom.textContent).not.toContain("**bold**");
+      await vi.waitFor(() =>
+        expect(wrap?.innerHTML).toBe('<div class="rk-fragment">fragment-probe-one **bold**</div>'),
+      );
+    } finally {
+      dispose();
+    }
+  });
+
+  it("reveals a paragraph's raw source when the cursor enters it", () => {
+    const doc = "reveal-probe **bold**\n";
+    const { view, dispose } = mount(doc, doc.length);
+    try {
+      view.dispatch({ selection: { anchor: 2 } });
+      expect(view.dom.querySelector(".rk-render-block")).toBeNull();
+      expect(view.dom.textContent).toContain("reveal-probe **bold**");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("keeps the following block rendered while the cursor sits on the blank line", () => {
+    const doc = "blank-owner\n\nblank-next\n";
+    const { view, dispose } = mount(doc, doc.indexOf("blank-next") - 1);
+    try {
+      // The blank line belongs to the preceding block: it reveals, the next
+      // one stays rendered.
+      expect(view.dom.querySelector(".rk-render-block")).not.toBeNull();
+      expect(view.dom.textContent).toContain("blank-owner");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("moves the cursor to the paragraph start when its widget is clicked", () => {
+    const doc = "click-target **x**\n";
+    const { view, dispose } = mount(doc, doc.length);
+    try {
+      const wrap = view.dom.querySelector<HTMLElement>(".rk-render-block");
+      expect(wrap).not.toBeNull();
+      wrap?.dispatchEvent(
+        new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }),
+      );
+      expect(view.state.selection.main.anchor).toBe(0);
+      expect(view.dom.querySelector(".rk-render-block")).toBeNull();
+    } finally {
+      dispose();
+    }
+  });
+
+  it("sends fenced code through the fragment pipeline instead of line styling", () => {
+    const doc = "```rust\nfn main() {}\n```\n\nafter\n";
+    const { view, dispose } = mount(doc, doc.length);
+    try {
+      expect(view.dom.querySelector(".rk-render-block")).not.toBeNull();
+      expect(renderFragment).toHaveBeenCalledWith("```rust\nfn main() {}\n```", "/ws/a.md");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("renders a horizontal rule locally without IPC", () => {
+    const doc = "above\n\n---\n\nbelow\n";
+    const { view, dispose } = mount(doc, doc.length);
+    try {
+      const wrap = view.dom.querySelector<HTMLElement>(".rk-render-hr");
+      expect(wrap).not.toBeNull();
+      expect(wrap?.querySelector("hr")).not.toBeNull();
+      expect(renderFragment).not.toHaveBeenCalledWith("---", "/ws/a.md");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("serves a re-mounted block from the cache without a second IPC call", async () => {
+    const doc = "cache-probe-unique **x**\n\nafter\n";
+    const first = mount(doc, doc.length);
+    try {
+      await vi.waitFor(() =>
+        expect(first.view.dom.querySelector(".rk-render-block")?.innerHTML).toContain(
+          "rk-fragment",
+        ),
+      );
+      const calls = renderFragment.mock.calls.filter((c) => c[0] === "cache-probe-unique **x**");
+      expect(calls).toHaveLength(1);
+      first.dispose();
+
+      const second = mount(doc, doc.length);
+      try {
+        // Synchronous fill from the cache — the call count stays at one.
+        expect(second.view.dom.querySelector(".rk-render-block")?.innerHTML).toContain(
+          "rk-fragment",
+        );
+        expect(renderFragment.mock.calls.filter((c) => c[0] === "cache-probe-unique **x**")).toHaveLength(1);
+      } finally {
+        second.dispose();
+      }
+    } finally {
+      first.dispose();
+    }
+  });
+
+  it("shows the raw source when fragment rendering fails", async () => {
+    renderFragment.mockRejectedValueOnce(new Error("backend down"));
+    const doc = "fragment-fail-probe\n\nafter\n";
+    const { view, dispose } = mount(doc, doc.length);
+    try {
+      const wrap = view.dom.querySelector<HTMLElement>(".rk-render-block");
+      await vi.waitFor(() => expect(wrap?.classList.contains("rk-fragment-raw")).toBe(true));
+      expect(wrap?.textContent).toBe("fragment-fail-probe");
+    } finally {
+      dispose();
+    }
+  });
+
+  it("renders nested mermaid fences inside a fragment", async () => {
+    renderFragment.mockResolvedValueOnce(
+      '<pre><code class="language-mermaid">graph TD\nA--&gt;B</code></pre>',
+    );
+    const doc = "quote with a diagram\n\nafter\n";
+    const { view, dispose } = mount(doc, doc.length);
+    try {
+      const wrap = await vi.waitFor(() => {
+        const el = view.dom.querySelector<HTMLElement>(".rk-render-block");
+        if (!el) throw new Error("widget not mounted");
+        return el;
+      });
+      await vi.waitFor(() => expect(renderMermaidBlocks).toHaveBeenCalled());
+      const calledOnWidget = renderMermaidBlocks.mock.calls.some(
+        ([root]) => root === wrap,
+      );
+      expect(calledOnWidget).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
   it("keeps the inline decorator out of rendered block ranges", () => {
     const doc = "| **a** | b |\n|---|---|\n| `c` | d |\n\n**after**\n";
-    const { view, dispose } = mount(doc);
+    const { view, dispose } = mount(doc, doc.indexOf("after") + 1);
     try {
+      // The cursor sits inside the trailing paragraph (revealed raw); the
+      // table is the only range hidden behind a widget.
       const skip = renderedBlocks(view.state);
       expect(skip).toHaveLength(1);
       const built = buildLiveDecorations(view.state, {
@@ -433,5 +631,15 @@ describe("widget identity", () => {
   it("compares math widgets by TeX source", () => {
     expect(new MathWidget("x", 0).eq(new MathWidget("x", 9))).toBe(true);
     expect(new MathWidget("x", 0).eq(new MathWidget("y", 0))).toBe(false);
+  });
+
+  it("compares fragment widgets by kind and source text", () => {
+    expect(new FragmentWidget("prose", "a", 0).eq(new FragmentWidget("prose", "a", 9))).toBe(true);
+    expect(new FragmentWidget("prose", "a", 0).eq(new FragmentWidget("prose", "b", 0))).toBe(
+      false,
+    );
+    expect(new FragmentWidget("prose", "a", 0).eq(new FragmentWidget("code", "a", 0))).toBe(
+      false,
+    );
   });
 });

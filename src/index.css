@@ -1961,14 +1961,7 @@ html.split-resizing * {
 .rk-strong { font-weight: 700; }
 .rk-em { font-style: italic; }
 .rk-strike { text-decoration: line-through; }
-/* Task text: lezer tags the Task node `list`, which the editor's prose
-   highlight paints accent — and CM nests that highlight span *inside* the
-   mark, so the reset has to reach the inner span too. Links / inline code
-   inside the task keep their colors via the more specific rules below. */
-.rk-live .cm-content .rk-task-text { color: var(--text); }
-.rk-live .cm-content .rk-task-text span { color: inherit; }
-.rk-live .cm-content .rk-inline-code,
-.rk-live .cm-content .rk-task-text .rk-inline-code {
+.rk-live .cm-content .rk-inline-code {
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 0.9em;
   background: var(--code-bg);
@@ -1976,8 +1969,7 @@ html.split-resizing * {
   border-radius: 5px;
   padding: 0.15em 0.4em;
 }
-.rk-live .cm-content .rk-link,
-.rk-live .cm-content .rk-task-text .rk-link { color: var(--link); text-decoration: none; }
+.rk-live .cm-content .rk-link { color: var(--link); text-decoration: none; }
 .rk-live .cm-content .rk-link:hover { text-decoration: underline; }
 
 /* Blockquote — same face as md-content.css: 4px quote-border, panel fill,
@@ -2095,6 +2087,9 @@ html.split-resizing * {
 .rk-fm-chip { display: inline-block; margin-right: 6px; }
 
 .rk-bullet { color: var(--accent); padding-right: 0.35em; }
+/* Ordered ordinals stay raw text in the live view; this face mirrors the
+   reader's `ol > li::marker` (bold accent). */
+.rk-ol-mark { color: var(--accent); font-weight: 700; }
 .rk-task { vertical-align: middle; margin-right: 0.35em; accent-color: var(--accent); }
 .rk-live .cm-content .cm-line.rk-hr-line { border-top: 1px solid var(--border); padding-top: 1.6em; }
 .rk-image {
@@ -2121,6 +2116,17 @@ html.split-resizing * {
   overflow: visible;
   padding: 0 8px;
   margin: 0;
+  /* The widget DOM sits under .cm-content.cm-lineWrapping, whose
+     overflow-wrap:anywhere / word-break:break-word / break-spaces would
+     otherwise inherit into table cells and collapse every column's
+     min-content to one character — `.md-body table` then crushes all
+     columns under max-width:100% instead of only wrapping long ones, so
+     live-view tables look nothing like the reader's. Re-declare the
+     reader's inherited text baseline here; unifying at this wrapper is
+     what keeps rendered blocks stylesheet-identical to reading view. */
+  white-space: normal;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 :root.bg-on .rk-live .md-body {
   background: none;
@@ -2129,6 +2135,18 @@ html.split-resizing * {
   -webkit-backdrop-filter: none;
 }
 .rk-live .rk-render-mermaid { margin-left: 8px; margin-right: 8px; }
+/* Prose/code/hr fragment widgets reuse .md-body's reset above; nothing else
+   to style — the Rust-rendered HTML carries md-content.css classes. The hr
+   only needs its reading-view margins (md-content.css scopes them under
+   .md-body hr, and this wrapper IS .md-body, so nothing to add). */
+/* IPC/render failure fallback: show the raw fragment instead of nothing. */
+.rk-live .rk-fragment-raw {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.9em;
+  color: var(--muted);
+  white-space: pre-wrap;
+  padding: 4px 8px;
+}
 .rk-render-math.math-raw {
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 0.92em;

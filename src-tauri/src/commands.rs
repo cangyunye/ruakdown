@@ -564,6 +564,27 @@ pub fn render_math(tex: String, display: bool) -> Result<String, String> {
     Ok(markdown::math_html(&tex, display))
 }
 
+/// Render one markdown block fragment to the reading view's HTML. The live
+/// view's prose widgets call this per block, so every rendered block is
+/// byte-identical to the reader (same `render_markdown` pipeline, fragment
+/// rendering being an enforced invariant of `large_doc::build_blocks`).
+/// `base_file` is the document path whose parent resolves relative img srcs
+/// to asset URLs, exactly like `open_doc`.
+///
+/// Invariant the caller guarantees: fragments never begin with a `---`
+/// frontmatter fence (the live view excludes the frontmatter region before
+/// splitting blocks), so `render_markdown`'s initial-metadata split can
+/// never swallow a fragment into a property card. Heading ids inside a
+/// fragment are fragment-local slugs; the live view has no id consumers
+/// (clicking a widget reveals the source), so the divergence from the
+/// reading view's document-order ids is inert.
+#[tauri::command]
+pub fn render_fragment(md: String, base_file: String) -> Result<String, String> {
+    let html = markdown::render_markdown(&md).html;
+    let base_dir = Path::new(&base_file).parent().map(Path::to_path_buf);
+    Ok(markdown::rewrite_img_srcs(&html, base_dir.as_deref()))
+}
+
 /// Absolute path of the bundled mermaid.min.js. The webview loads it through
 /// the asset protocol (single copy — the npm mermaid dependency is gone),
 /// while export/serve read the same file directly.
@@ -788,4 +809,43 @@ pub fn serve_set_dirty(state: State<'_, crate::AppState>, dirty: bool) {
         .store(dirty, std::sync::atomic::Ordering::Relaxed);
     let msg = serde_json::json!({ "type": "dirty", "value": dirty }).to_string();
     let _ = h.shared.tx.send(msg);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renders_a_prose_fragment_like_the_reading_pipeline() {
+        let html = render_fragment("# 标题\n\n段落 **加粗** 与 `代码`。\n".into(), "/ws/a.md".into())
+            .expect("render_fragment succeeds");
+        assert!(html.contains("<h1"), "heading renders: {html}");
+        assert!(html.contains("<strong>加粗</strong>"), "emphasis renders: {html}");
+        assert!(html.contains("<code>代码</code>"), "inline code renders: {html}");
+        assert!(!html.contains("md-frontmatter"), "no property card: {html}");
+    }
+
+    #[test]
+    fn rewrites_relative_img_srcs_against_the_doc_directory() {
+        let html = render_fragment("![alt](./img/pic.png)".into(), "/ws/docs/a.md".into())
+            .expect("render_fragment succeeds");
+        assert!(
+            html.contains("asset://localhost/") && html.contains("pic.png"),
+            "img src becomes an asset URL: {html}"
+        );
+    }
+
+    #[test]
+    fn highlights_fenced_code_and_marks_mermaid_for_the_frontend() {
+        let code = render_fragment("```rust\nfn main() {}\n```\n".into(), "/ws/a.md".into())
+            .expect("render_fragment succeeds");
+        assert!(code.contains("tok-keyword"), "rust code is highlighted: {code}");
+
+        let mermaid = render_fragment("```mermaid\ngraph TD\nA-->B\n```\n".into(), "/ws/a.md".into())
+            .expect("render_fragment succeeds");
+        assert!(
+            mermaid.contains("language-mermaid"),
+            "mermaid stays marked for frontend rendering: {mermaid}"
+        );
+    }
 }
